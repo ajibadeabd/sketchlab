@@ -1117,9 +1117,9 @@ export default function DesignTool() {
   const hasMultipleSelected = selectedIds.length > 1;
 
   return (
-    <div className={`flex h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
+    <div className={`flex h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-100'} overflow-hidden`}>
       {/* Toolbar */}
-      <div className={`w-16 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-r flex flex-col items-center py-4 gap-2 overflow-y-auto`}>
+      <div className={`w-16 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-r flex flex-col items-center py-4 gap-2 overflow-y-auto flex-shrink-0`}>
         <button
           onClick={() => setDarkMode(!darkMode)}
           className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
@@ -1229,7 +1229,7 @@ export default function DesignTool() {
 
       {/* Layers Panel */}
       {showLayers && (
-        <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-r p-4 overflow-y-auto`}>
+        <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-r p-4 overflow-y-auto flex-shrink-0 h-screen`}>
           <h3 className="font-semibold mb-3">Layers</h3>
           <div className="space-y-1">
             {[...elements].sort((a, b) => b.zIndex - a.zIndex).map(el => (
@@ -1249,9 +1249,9 @@ export default function DesignTool() {
       )}
 
       {/* Canvas */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Bar */}
-        <div className={`h-12 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-b flex items-center justify-between px-4`}>
+        <div className={`h-12 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-b flex items-center justify-between px-4 flex-shrink-0`}>
           <div className="flex items-center gap-2">
             <button onClick={() => setZoom(Math.max(0.1, zoom - 0.1))} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`}>
               <ZoomOut size={18} />
@@ -1357,7 +1357,8 @@ export default function DesignTool() {
             onMouseUp={handleMouseUp}
             style={{ 
               cursor: isPanning ? 'grabbing' : tool === 'select' ? 'default' : 'crosshair',
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: '0 0'
             }}
           >
             <defs>
@@ -1694,7 +1695,7 @@ export default function DesignTool() {
 
       {/* Properties Panel */}
       {(selectedElement || hasMultipleSelected) && (
-        <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-l p-4 overflow-y-auto`}>
+        <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-l p-4 overflow-y-auto flex-shrink-0 h-screen`}>
           <h3 className="font-semibold mb-4">{hasMultipleSelected ? `Properties (${selectedIds.length} selected)` : 'Properties'}</h3>
           
           <div className="space-y-3">
