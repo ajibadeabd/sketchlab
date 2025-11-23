@@ -5,10 +5,11 @@ import {
   ZoomIn, ZoomOut, Minus, Lock, Unlock, Upload,
   AlignLeft, AlignCenter, AlignRight, AlignVerticalJustifyCenter,
   AlignHorizontalJustifyCenter, Pen, Save, Moon, Sun, Box, Package,
-  Palette
+  Palette, ALargeSmall, Anchor, Pipette, Edit3, Shapes, Star, Hexagon,
+  MoveRight
 } from 'lucide-react';
 
-type ToolType = 'select' | 'rectangle' | 'circle' | 'text' | 'line' | 'pen' | 'frame';
+type ToolType = 'select' | 'rectangle' | 'circle' | 'text' | 'line' | 'pen' | 'frame' | 'eyedropper' | 'pencil' | 'polygon' | 'star' | 'arrow';
 
 interface Point {
   x: number;
@@ -17,7 +18,7 @@ interface Point {
 
 interface Element {
   id: number;
-  type: 'rectangle' | 'circle' | 'text' | 'line' | 'path' | 'image' | 'frame';
+  type: 'rectangle' | 'circle' | 'text' | 'line' | 'path' | 'image' | 'frame' | 'pencil' | 'polygon' | 'star' | 'arrow';
   x: number;
   y: number;
   width: number;
@@ -25,22 +26,32 @@ interface Element {
   fill: string;
   stroke?: string;
   strokeWidth?: number;
+  strokeStyle?: 'solid' | 'dashed' | 'dotted';
   text?: string;
   fontSize?: number;
   fontWeight?: 'normal' | 'bold';
   fontStyle?: 'normal' | 'italic';
   textDecoration?: 'none' | 'underline';
   textAlign?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
   fontFamily?: string;
+  letterSpacing?: number;
+  lineHeight?: number;
   rotation?: number;
   opacity?: number;
+  blendMode?: 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten' | 'color-dodge' | 'color-burn';
   layerName?: string;
   groupId?: number | null;
   zIndex: number;
   locked?: boolean;
   visible?: boolean;
   path?: string;
+  pencilPoints?: Point[];
+  sides?: number;
+  starPoints?: number;
+  innerRadius?: number;
   borderRadius?: number;
+  borderRadiusCorners?: { tl: number; tr: number; bl: number; br: number };
   imageUrl?: string;
   isFrame?: boolean;
   frameColor?: string;
@@ -49,17 +60,19 @@ interface Element {
   componentProps?: Record<string, any>;
   componentVariant?: string;
   blur?: number;
-  shadow?: {
+  shadows?: Array<{
     offsetX: number;
     offsetY: number;
     blur: number;
     color: string;
-  };
-  gradient?: {
+    transparency: number;
+    type: 'drop' | 'inner' | 'left' | 'right' | 'top' | 'bottom';
+  }>;
+  gradients?: Array<{
     type: 'linear' | 'radial';
     stops: Array<{ offset: number; color: string }>;
     angle?: number;
-  };
+  }>;
   autoLayout?: {
     direction: 'horizontal' | 'vertical';
     spacing: number;
@@ -74,6 +87,9 @@ interface Element {
   parentFrameId?: number | null;
   textStyleId?: string | null;
   colorStyleId?: string | null;
+  connectedTo?: number | null;
+  arrowStart?: boolean;
+  arrowEnd?: boolean;
 }
 
 interface Component {
@@ -106,6 +122,7 @@ interface ColorStyle {
   name: string;
   color: string;
   description?: string;
+  type?: 'primary' | 'secondary' | 'monochromatic' | 'custom';
 }
 
 interface Group {
@@ -146,10 +163,25 @@ export default function DesignTool() {
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
   const [drawPreview, setDrawPreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
-  // const [booleanMode, setBooleanMode] = useState<'union' | 'subtract' | 'intersect' | null>(null);
+  const [booleanMode, setBooleanMode] = useState<'union' | 'subtract' | 'intersect' | null>(null);
   const [textStyles, setTextStyles] = useState<TextStyle[]>([]);
   const [colorStyles, setColorStyles] = useState<ColorStyle[]>([]);
   const [showStylesPanel, setShowStylesPanel] = useState(false);
+  const [showShapesMenu, setShowShapesMenu] = useState(false);
+  const [pencilDrawing, setPencilDrawing] = useState<Point[]>([]);
+  const [isPickingColor, setIsPickingColor] = useState(false);
+  const [colorPickTarget, setColorPickTarget] = useState<'fill' | 'stroke'>('fill');
+  const [colorPalette] = useState<{ name: string; color: string; type: 'primary' | 'secondary' | 'monochromatic' }[]>([
+    { name: 'Primary Blue', color: '#3b82f6', type: 'primary' },
+    { name: 'Primary Dark', color: '#1e40af', type: 'primary' },
+    { name: 'Primary Light', color: '#93c5fd', type: 'primary' },
+    { name: 'Secondary Purple', color: '#8b5cf6', type: 'secondary' },
+    { name: 'Secondary Dark', color: '#6d28d9', type: 'secondary' },
+    { name: 'Secondary Light', color: '#c4b5fd', type: 'secondary' },
+    { name: 'Mono Dark', color: '#1f2937', type: 'monochromatic' },
+    { name: 'Mono Medium', color: '#6b7280', type: 'monochromatic' },
+    { name: 'Mono Light', color: '#d1d5db', type: 'monochromatic' },
+  ]);
 
   const zoomIn = () => {
     setZoom(Math.min(5, zoom * 1.2));
@@ -228,27 +260,32 @@ export default function DesignTool() {
     }
   };
 
-  const addElement = (type: 'rectangle' | 'circle' | 'text' | 'line' | 'frame', x: number, y: number, width: number, height: number) => {
+  const addElement = (type: 'rectangle' | 'circle' | 'text' | 'line' | 'frame' | 'pencil' | 'polygon' | 'star' | 'arrow', x: number, y: number, width: number, height: number) => {
     const maxZ = elements.length > 0 ? Math.max(...elements.map(e => e.zIndex)) : 0;
     const newElement: Element = {
       id: Date.now(),
-      type: type === 'frame' ? 'frame' : type,
+      type: type === 'frame' ? 'frame' : type === 'pencil' ? 'pencil' : type,
       x,
       y,
       width,
       height,
-      fill: type === 'text' ? '#000000' : type === 'line' ? 'transparent' : type === 'frame' ? 'rgba(255, 255, 255, 0.01)' : '#3b82f6',
-      stroke: type === 'line' ? '#000000' : type === 'frame' ? '#8b5cf6' : undefined,
-      strokeWidth: type === 'line' ? 2 : type === 'frame' ? 2 : undefined,
+      fill: type === 'text' ? '#000000' : type === 'line' ? 'transparent' : type === 'frame' ? 'rgba(255, 255, 255, 0.01)' : type === 'pencil' ? 'transparent' : type === 'arrow' ? 'transparent' : '#3b82f6',
+      stroke: type === 'line' ? '#000000' : type === 'frame' ? '#8b5cf6' : type === 'pencil' ? '#000000' : type === 'arrow' ? '#000000' : undefined,
+      strokeWidth: type === 'line' ? 2 : type === 'frame' ? 2 : type === 'pencil' ? 2 : type === 'arrow' ? 2 : undefined,
+      strokeStyle: 'solid',
       text: type === 'text' ? 'Double-click to edit' : undefined,
       fontSize: 16,
       fontWeight: 'normal',
       fontStyle: 'normal',
       textDecoration: 'none',
       textAlign: 'left',
+      verticalAlign: 'top',
       fontFamily: 'Arial, sans-serif',
+      letterSpacing: 0,
+      lineHeight: 1.5,
       rotation: 0,
       opacity: 1,
+      blendMode: 'normal',
       layerName: `${type.charAt(0).toUpperCase() + type.slice(1)} ${elements.length + 1}`,
       groupId: null,
       zIndex: maxZ + 1,
@@ -257,7 +294,13 @@ export default function DesignTool() {
       borderRadius: 0,
       isFrame: type === 'frame',
       frameColor: type === 'frame' ? '#8b5cf6' : undefined,
-      blur: 0
+      blur: 0,
+      pencilPoints: type === 'pencil' ? pencilDrawing : undefined,
+      sides: type === 'polygon' ? 6 : undefined,
+      starPoints: type === 'star' ? 5 : undefined,
+      innerRadius: type === 'star' ? 0.5 : undefined,
+      arrowStart: false,
+      arrowEnd: type === 'arrow' ? true : false
     };
     setElements([...elements, newElement]);
     setSelectedIds([newElement.id]);
@@ -312,6 +355,32 @@ export default function DesignTool() {
     const x = (e.clientX - rect.left - pan.x) / zoom;
     const y = (e.clientY - rect.top - pan.y) / zoom;
 
+    // Eyedropper tool
+    if (tool === 'eyedropper') {
+      const clicked = [...elements]
+        .filter(el => el.visible !== false)
+        .sort((a, b) => b.zIndex - a.zIndex)
+        .find(el => 
+          x >= el.x && x <= el.x + el.width &&
+          y >= el.y && y <= el.y + el.height
+        );
+      
+      if (clicked) {
+        if (selectedIds.length > 0) {
+          const color = colorPickTarget === 'fill' ? clicked.fill : clicked.stroke || '#000000';
+          setElements(elements.map(el => 
+            selectedIds.includes(el.id) 
+              ? { ...el, [colorPickTarget]: color }
+              : el
+          ));
+          saveHistory();
+        }
+        setTool('select');
+        setIsPickingColor(false);
+      }
+      return;
+    }
+
     if (tool === 'pen') {
       if (!isDrawingPath) {
         setIsDrawingPath(true);
@@ -344,7 +413,7 @@ export default function DesignTool() {
     if (!rect) return;
     
     const x = (e.clientX - rect.left - pan.x) / zoom;
-    const y = (e.clientY - rect.top - pan.y) / zoom;
+    const y = (e.clientX - rect.top - pan.y) / zoom;
 
     // Start drawing shapes
     if (tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'frame') {
@@ -354,7 +423,13 @@ export default function DesignTool() {
       return;
     }
 
-    if (tool !== 'select') return;
+    // Start pencil drawing
+    if (tool === 'pencil') {
+      setPencilDrawing([{ x, y }]);
+      return;
+    }
+
+    if (tool !== 'select' && tool !== 'eyedropper') return;
 
     // Check if clicking on an element
     const clicked = [...elements]
@@ -581,6 +656,12 @@ export default function DesignTool() {
     const mouseX = (e.clientX - rect.left - pan.x) / zoom;
     const mouseY = (e.clientY - rect.top - pan.y) / zoom;
 
+    // Handle pencil drawing
+    if (tool === 'pencil' && pencilDrawing.length > 0) {
+      setPencilDrawing([...pencilDrawing, { x: mouseX, y: mouseY }]);
+      return;
+    }
+
     // Handle drawing shapes
     if (isDrawing && drawStart) {
       const width = mouseX - drawStart.x;
@@ -800,6 +881,21 @@ export default function DesignTool() {
   };
 
   const handleMouseUp = () => {
+    // Finish pencil drawing
+    if (tool === 'pencil' && pencilDrawing.length > 1) {
+      const xs = pencilDrawing.map(p => p.x);
+      const ys = pencilDrawing.map(p => p.y);
+      const minX = Math.min(...xs);
+      const minY = Math.min(...ys);
+      const maxX = Math.max(...xs);
+      const maxY = Math.max(...ys);
+
+      addElement('pencil', minX, minY, maxX - minX, maxY - minY);
+      setPencilDrawing([]);
+      setTool('select');
+      return;
+    }
+
     // Finish drawing shape
     if (isDrawing && drawStart && drawPreview) {
       const minWidth = 5;
@@ -1379,6 +1475,10 @@ export default function DesignTool() {
         setTool('pen');
       } else if (e.key === 'f') {
         setTool('frame');
+      } else if (e.key === 'i') {
+        setTool('eyedropper');
+      } else if (e.key === 'b') {
+        setTool('pencil');
       } else if (e.key === 'Escape' && isDrawingPath) {
         setPenPoints([]);
         setIsDrawingPath(false);
@@ -1498,33 +1598,59 @@ export default function DesignTool() {
         >
           <MousePointer size={20} />
         </button>
-        <button
-          onClick={() => setTool('rectangle')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'rectangle' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Rectangle (R)"
-        >
-          <Square size={20} />
-        </button>
-        <button
-          onClick={() => setTool('circle')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'circle' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Circle (C)"
-        >
-          <Circle size={20} />
-        </button>
+        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
+        
+        <div className="relative">
+          <button
+            onClick={() => setShowShapesMenu(!showShapesMenu)}
+            className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'} ${showShapesMenu ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''}`}
+            title="Shapes (S)"
+          >
+            <Shapes size={20} />
+          </button>
+          
+          {showShapesMenu && (
+            <div className={`absolute left-full ml-2 top-0 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border rounded shadow-lg p-2 z-50`}>
+              <div className="grid grid-cols-2 gap-1">
+                <button
+                  onClick={() => { setTool('rectangle'); setShowShapesMenu(false); }}
+                  className={`p-2 rounded hover:bg-gray-100 ${tool === 'rectangle' ? 'bg-blue-100' : ''}`}
+                  title="Rectangle (R)"
+                >
+                  <Square size={20} />
+                </button>
+                <button
+                  onClick={() => { setTool('circle'); setShowShapesMenu(false); }}
+                  className={`p-2 rounded hover:bg-gray-100 ${tool === 'circle' ? 'bg-blue-100' : ''}`}
+                  title="Circle (C)"
+                >
+                  <Circle size={20} />
+                </button>
+                <button
+                  onClick={() => { setTool('line'); setShowShapesMenu(false); }}
+                  className={`p-2 rounded hover:bg-gray-100 ${tool === 'line' ? 'bg-blue-100' : ''}`}
+                  title="Line (L)"
+                >
+                  <Minus size={20} />
+                </button>
+                <button
+                  onClick={() => { setTool('frame'); setShowShapesMenu(false); }}
+                  className={`p-2 rounded hover:bg-gray-100 ${tool === 'frame' ? 'bg-blue-100' : ''}`}
+                  title="Frame (F)"
+                >
+                  <Box size={20} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         <button
           onClick={() => setTool('text')}
           className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'text' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
           title="Text (T)"
         >
           <Type size={20} />
-        </button>
-        <button
-          onClick={() => setTool('line')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'line' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Line (L)"
-        >
-          <Minus size={20} />
         </button>
         <button
           onClick={() => setTool('pen')}
@@ -1534,11 +1660,18 @@ export default function DesignTool() {
           <Pen size={20} />
         </button>
         <button
-          onClick={() => setTool('frame')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'frame' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Frame (F)"
+          onClick={() => setTool('pencil')}
+          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'pencil' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
+          title="Pencil (B)"
         >
-          <Box size={20} />
+          <Edit3 size={20} />
+        </button>
+        <button
+          onClick={() => { setTool('eyedropper'); setIsPickingColor(true); }}
+          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'eyedropper' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
+          title="Eyedropper (I)"
+        >
+          <Pipette size={20} />
         </button>
         
         <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
@@ -1960,6 +2093,18 @@ export default function DesignTool() {
               </>
             )}
             
+            {/* Pencil drawing preview */}
+            {tool === 'pencil' && pencilDrawing.length > 0 && (
+              <path
+                d={pencilDrawing.map((p, i) => 
+                  i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
+                ).join(' ')}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth="2"
+              />
+            )}
+            
             {/* Elements */}
             {[...elements].filter(el => el.visible !== false).sort((a, b) => a.zIndex - b.zIndex).map(element => {
               const fillValue = element.gradient ? `url(#${getGradientId(element)})` : element.fill;
@@ -2036,6 +2181,22 @@ export default function DesignTool() {
                         y1={element.y + element.height / 2}
                         x2={element.x + element.width}
                         y2={element.y + element.height / 2}
+                        stroke={element.stroke || '#000000'}
+                        strokeWidth={element.strokeWidth || 2}
+                        strokeDasharray={
+                          element.strokeStyle === 'dashed' ? '10,5' :
+                          element.strokeStyle === 'dotted' ? '2,3' :
+                          undefined
+                        }
+                        style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
+                      />
+                    )}
+                    {element.type === 'pencil' && element.pencilPoints && (
+                      <path
+                        d={element.pencilPoints.map((p, i) => 
+                          i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
+                        ).join(' ')}
+                        fill="none"
                         stroke={element.stroke || '#000000'}
                         strokeWidth={element.strokeWidth || 2}
                         style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
@@ -2341,12 +2502,21 @@ export default function DesignTool() {
             
                 <div>
                   <label className="text-sm text-gray-600">Fill Color</label>
-                  <input
-                    type="color"
-                    value={selectedElement.fill}
-                    onChange={(e) => updateProperty('fill', e.target.value)}
-                    className="w-full h-10 border rounded cursor-pointer"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="color"
+                      value={selectedElement.fill}
+                      onChange={(e) => updateProperty('fill', e.target.value)}
+                      className="w-full h-10 border rounded cursor-pointer"
+                    />
+                    <button
+                      onClick={() => { setColorPickTarget('fill'); setTool('eyedropper'); }}
+                      className="p-2 bg-gray-100 hover:bg-gray-200 rounded"
+                      title="Pick Fill Color"
+                    >
+                      <Pipette size={16} />
+                    </button>
+                  </div>
                 </div>
 
                 {(selectedElement.type === 'rectangle' || selectedElement.type === 'image') && (
@@ -2359,6 +2529,76 @@ export default function DesignTool() {
                       onChange={(e) => updateProperty('borderRadius', parseInt(e.target.value) || 0)}
                       className="w-full px-2 py-1 border rounded text-sm"
                     />
+                    
+                    <div className="mt-2">
+                      <label className="text-xs text-gray-500 mb-1 block">Individual Corners</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-gray-600">TL</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={selectedElement.borderRadiusCorners?.tl || selectedElement.borderRadius || 0}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              updateProperty('borderRadiusCorners', {
+                                ...(selectedElement.borderRadiusCorners || { tl: 0, tr: 0, bl: 0, br: 0 }),
+                                tl: val
+                              });
+                            }}
+                            className="w-full px-1 py-1 border rounded text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-600">TR</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={selectedElement.borderRadiusCorners?.tr || selectedElement.borderRadius || 0}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              updateProperty('borderRadiusCorners', {
+                                ...(selectedElement.borderRadiusCorners || { tl: 0, tr: 0, bl: 0, br: 0 }),
+                                tr: val
+                              });
+                            }}
+                            className="w-full px-1 py-1 border rounded text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-600">BL</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={selectedElement.borderRadiusCorners?.bl || selectedElement.borderRadius || 0}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              updateProperty('borderRadiusCorners', {
+                                ...(selectedElement.borderRadiusCorners || { tl: 0, tr: 0, bl: 0, br: 0 }),
+                                bl: val
+                              });
+                            }}
+                            className="w-full px-1 py-1 border rounded text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-600">BR</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={selectedElement.borderRadiusCorners?.br || selectedElement.borderRadius || 0}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              updateProperty('borderRadiusCorners', {
+                                ...(selectedElement.borderRadiusCorners || { tl: 0, tr: 0, bl: 0, br: 0 }),
+                                br: val
+                              });
+                            }}
+                            className="w-full px-1 py-1 border rounded text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -2613,26 +2853,274 @@ export default function DesignTool() {
               <div className="pt-4 border-t">
                 <h4 className="text-sm font-semibold mb-2">Effects</h4>
                 
-                <div className="space-y-2">
-                  {selectedElement.shadow ? (
-                    <button onClick={removeShadow} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
-                      Remove Shadow
-                    </button>
-                  ) : (
-                    <button onClick={addShadow} className="w-full px-3 py-2 bg-purple-100 hover:bg-purple-200 rounded text-sm">
-                      Add Shadow
-                    </button>
-                  )}
-                  
-                  {selectedElement.gradient ? (
-                    <button onClick={removeGradient} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
-                      Remove Gradient
-                    </button>
-                  ) : (
-                    <button onClick={addGradient} className="w-full px-3 py-2 bg-purple-100 hover:bg-purple-200 rounded text-sm">
-                      Add Gradient
-                    </button>
-                  )}
+                <div className="space-y-3">
+                  {/* Shadows */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-xs font-medium">Shadows</label>
+                      <button
+                        onClick={() => {
+                          const newShadows = selectedElement.shadows || [];
+                          newShadows.push({
+                            offsetX: 2,
+                            offsetY: 2,
+                            blur: 4,
+                            color: 'rgba(0,0,0,0.3)',
+                            transparency: 70,
+                            type: 'drop'
+                          });
+                          updateProperty('shadows', newShadows);
+                        }}
+                        className="text-xs px-2 py-1 bg-purple-100 hover:bg-purple-200 rounded"
+                      >
+                        + Add Shadow
+                      </button>
+                    </div>
+                    
+                    {selectedElement.shadows?.map((shadow, index) => (
+                      <div key={index} className="p-2 bg-gray-50 rounded space-y-2 mb-2">
+                        <div className="flex justify-between items-center">
+                          <select
+                            value={shadow.type}
+                            onChange={(e) => {
+                              const newShadows = [...(selectedElement.shadows || [])];
+                              newShadows[index] = { ...shadow, type: e.target.value as any };
+                              updateProperty('shadows', newShadows);
+                            }}
+                            className="text-xs px-2 py-1 border rounded"
+                          >
+                            <option value="drop">Drop Shadow</option>
+                            <option value="inner">Inner Shadow</option>
+                            <option value="left">Left Shadow</option>
+                            <option value="right">Right Shadow</option>
+                            <option value="top">Top Shadow</option>
+                            <option value="bottom">Bottom Shadow</option>
+                          </select>
+                          <button
+                            onClick={() => {
+                              const newShadows = (selectedElement.shadows || []).filter((_, i) => i !== index);
+                              updateProperty('shadows', newShadows.length > 0 ? newShadows : undefined);
+                            }}
+                            className="text-xs px-2 py-1 bg-red-100 hover:bg-red-200 rounded"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-gray-600">X</label>
+                            <input
+                              type="number"
+                              value={shadow.offsetX}
+                              onChange={(e) => {
+                                const newShadows = [...(selectedElement.shadows || [])];
+                                newShadows[index] = { ...shadow, offsetX: parseInt(e.target.value) || 0 };
+                                updateProperty('shadows', newShadows);
+                              }}
+                              className="w-full px-1 py-1 border rounded text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-600">Y</label>
+                            <input
+                              type="number"
+                              value={shadow.offsetY}
+                              onChange={(e) => {
+                                const newShadows = [...(selectedElement.shadows || [])];
+                                newShadows[index] = { ...shadow, offsetY: parseInt(e.target.value) || 0 };
+                                updateProperty('shadows', newShadows);
+                              }}
+                              className="w-full px-1 py-1 border rounded text-xs"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="text-xs text-gray-600">Blur: {shadow.blur}px</label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="50"
+                            value={shadow.blur}
+                            onChange={(e) => {
+                              const newShadows = [...(selectedElement.shadows || [])];
+                              newShadows[index] = { ...shadow, blur: parseInt(e.target.value) };
+                              updateProperty('shadows', newShadows);
+                            }}
+                            className="w-full"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="text-xs text-gray-600">Transparency: {shadow.transparency}%</label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={shadow.transparency}
+                            onChange={(e) => {
+                              const newShadows = [...(selectedElement.shadows || [])];
+                              newShadows[index] = { ...shadow, transparency: parseInt(e.target.value) };
+                              updateProperty('shadows', newShadows);
+                            }}
+                            className="w-full"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="text-xs text-gray-600">Color</label>
+                          <input
+                            type="color"
+                            value={shadow.color.startsWith('rgba') ? '#000000' : shadow.color}
+                            onChange={(e) => {
+                              const newShadows = [...(selectedElement.shadows || [])];
+                              newShadows[index] = { ...shadow, color: e.target.value };
+                              updateProperty('shadows', newShadows);
+                            }}
+                            className="w-full h-8 border rounded cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {(!selectedElement.shadows || selectedElement.shadows.length === 0) && (
+                      <p className="text-xs text-gray-500">No shadows</p>
+                    )}
+                  </div>
+
+                  {/* Gradients */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-xs font-medium">Gradients</label>
+                      <button
+                        onClick={() => {
+                          const newGradients = selectedElement.gradients || [];
+                          newGradients.push({
+                            type: 'linear',
+                            stops: [
+                              { offset: 0, color: '#3b82f6' },
+                              { offset: 1, color: '#8b5cf6' }
+                            ],
+                            angle: 0
+                          });
+                          updateProperty('gradients', newGradients);
+                        }}
+                        className="text-xs px-2 py-1 bg-purple-100 hover:bg-purple-200 rounded"
+                      >
+                        + Add Gradient
+                      </button>
+                    </div>
+                    
+                    {selectedElement.gradients?.map((gradient, gIndex) => (
+                      <div key={gIndex} className="p-2 bg-gray-50 rounded space-y-2 mb-2">
+                        <div className="flex justify-between items-center">
+                          <select
+                            value={gradient.type}
+                            onChange={(e) => {
+                              const newGradients = [...(selectedElement.gradients || [])];
+                              newGradients[gIndex] = { ...gradient, type: e.target.value as any };
+                              updateProperty('gradients', newGradients);
+                            }}
+                            className="text-xs px-2 py-1 border rounded"
+                          >
+                            <option value="linear">Linear</option>
+                            <option value="radial">Radial</option>
+                          </select>
+                          <button
+                            onClick={() => {
+                              const newGradients = (selectedElement.gradients || []).filter((_, i) => i !== gIndex);
+                              updateProperty('gradients', newGradients.length > 0 ? newGradients : undefined);
+                            }}
+                            className="text-xs px-2 py-1 bg-red-100 hover:bg-red-200 rounded"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        
+                        {gradient.type === 'linear' && (
+                          <div>
+                            <label className="text-xs text-gray-600">Angle: {gradient.angle}°</label>
+                            <input
+                              type="range"
+                              min="0"
+                              max="360"
+                              value={gradient.angle || 0}
+                              onChange={(e) => {
+                                const newGradients = [...(selectedElement.gradients || [])];
+                                newGradients[gIndex] = { ...gradient, angle: parseInt(e.target.value) };
+                                updateProperty('gradients', newGradients);
+                              }}
+                              className="w-full"
+                            />
+                          </div>
+                        )}
+                        
+                        <div>
+                          <label className="text-xs font-medium">Color Stops</label>
+                          {gradient.stops.map((stop, sIndex) => (
+                            <div key={sIndex} className="flex items-center gap-2 mt-2">
+                              <input
+                                type="color"
+                                value={stop.color}
+                                onChange={(e) => {
+                                  const newGradients = [...(selectedElement.gradients || [])];
+                                  const newStops = [...gradient.stops];
+                                  newStops[sIndex] = { ...stop, color: e.target.value };
+                                  newGradients[gIndex] = { ...gradient, stops: newStops };
+                                  updateProperty('gradients', newGradients);
+                                }}
+                                className="w-8 h-8 border rounded cursor-pointer"
+                              />
+                              <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={stop.offset * 100}
+                                onChange={(e) => {
+                                  const newGradients = [...(selectedElement.gradients || [])];
+                                  const newStops = [...gradient.stops];
+                                  newStops[sIndex] = { ...stop, offset: parseInt(e.target.value) / 100 };
+                                  newGradients[gIndex] = { ...gradient, stops: newStops };
+                                  updateProperty('gradients', newGradients);
+                                }}
+                                className="flex-1"
+                              />
+                              <span className="text-xs">{Math.round(stop.offset * 100)}%</span>
+                              {gradient.stops.length > 2 && (
+                                <button
+                                  onClick={() => {
+                                    const newGradients = [...(selectedElement.gradients || [])];
+                                    const newStops = gradient.stops.filter((_, i) => i !== sIndex);
+                                    newGradients[gIndex] = { ...gradient, stops: newStops };
+                                    updateProperty('gradients', newGradients);
+                                  }}
+                                  className="text-xs px-1 py-1 bg-red-100 hover:bg-red-200 rounded"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            onClick={() => {
+                              const newGradients = [...(selectedElement.gradients || [])];
+                              const newStops = [...gradient.stops, { offset: 0.5, color: '#ffffff' }];
+                              newGradients[gIndex] = { ...gradient, stops: newStops };
+                              updateProperty('gradients', newGradients);
+                            }}
+                            className="text-xs px-2 py-1 bg-blue-100 hover:bg-blue-200 rounded mt-2 w-full"
+                          >
+                            + Add Stop
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {(!selectedElement.gradients || selectedElement.gradients.length === 0) && (
+                      <p className="text-xs text-gray-500">No gradients</p>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
