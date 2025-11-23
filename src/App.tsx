@@ -1,9 +1,11 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable no-dupe-else-if */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Square, Circle, Type, MousePointer, Trash2, Copy, 
   Download, Layers, FolderPlus, Undo2, Redo2,
   ZoomIn, ZoomOut, Minus, Lock, Unlock, Upload,
-  AlignLeft, AlignCenter, AlignRight, AlignVerticalJustifyCenter,
+  AlignLeft, AlignCenter, AlignRight,
   AlignHorizontalJustifyCenter, Pen, Save, Moon, Sun
 } from 'lucide-react';
 
@@ -848,14 +850,14 @@ export default function DesignTool() {
     saveHistory();
   };
 
-  const alignTop = () => {
-    if (selectedIds.length === 0) return;
-    const minY = Math.min(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y));
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, y: minY } : el
-    ));
-    saveHistory();
-  };
+  // const alignTop = () => {
+  //   if (selectedIds.length === 0) return;
+  //   const minY = Math.min(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y));
+  //   setElements(elements.map(el => 
+  //     selectedIds.includes(el.id) ? { ...el, y: minY } : el
+  //   ));
+  //   saveHistory();
+  // };
 
   const alignMiddle = () => {
     if (selectedIds.length === 0) return;
@@ -870,14 +872,14 @@ export default function DesignTool() {
     saveHistory();
   };
 
-  const alignBottom = () => {
-    if (selectedIds.length === 0) return;
-    const maxY = Math.max(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y + el.height));
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, y: maxY - el.height } : el
-    ));
-    saveHistory();
-  };
+  // const alignBottom = () => {
+  //   if (selectedIds.length === 0) return;
+  //   const maxY = Math.max(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y + el.height));
+  //   setElements(elements.map(el => 
+  //     selectedIds.includes(el.id) ? { ...el, y: maxY - el.height } : el
+  //   ));
+  //   saveHistory();
+  // };
 
   const createGroup = () => {
     if (selectedIds.length < 2) return;
