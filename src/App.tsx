@@ -1,15 +1,14 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable no-dupe-else-if */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Square, Circle, Type, MousePointer, Trash2, Copy, 
   Download, Layers, FolderPlus, Undo2, Redo2,
   ZoomIn, ZoomOut, Minus, Lock, Unlock, Upload,
-  AlignLeft, AlignCenter, AlignRight,
-  AlignHorizontalJustifyCenter, Pen, Save, Moon, Sun
+  AlignLeft, AlignCenter, AlignRight, AlignVerticalJustifyCenter,
+  AlignHorizontalJustifyCenter, Pen, Save, Moon, Sun, Box, Package,
+  Palette
 } from 'lucide-react';
 
-type ToolType = 'select' | 'rectangle' | 'circle' | 'text' | 'line' | 'pen';
+type ToolType = 'select' | 'rectangle' | 'circle' | 'text' | 'line' | 'pen' | 'frame';
 
 interface Point {
   x: number;
@@ -18,7 +17,7 @@ interface Point {
 
 interface Element {
   id: number;
-  type: 'rectangle' | 'circle' | 'text' | 'line' | 'path' | 'image';
+  type: 'rectangle' | 'circle' | 'text' | 'line' | 'path' | 'image' | 'frame';
   x: number;
   y: number;
   width: number;
@@ -43,6 +42,13 @@ interface Element {
   path?: string;
   borderRadius?: number;
   imageUrl?: string;
+  isFrame?: boolean;
+  frameColor?: string;
+  componentId?: number | null;
+  isComponent?: boolean;
+  componentProps?: Record<string, any>;
+  componentVariant?: string;
+  blur?: number;
   shadow?: {
     offsetX: number;
     offsetY: number;
@@ -54,6 +60,52 @@ interface Element {
     stops: Array<{ offset: number; color: string }>;
     angle?: number;
   };
+  autoLayout?: {
+    direction: 'horizontal' | 'vertical';
+    spacing: number;
+    padding: number;
+    alignment: 'start' | 'center' | 'end' | 'space-between';
+    wrap: boolean;
+  };
+  constraints?: {
+    horizontal: 'left' | 'right' | 'center' | 'left-right' | 'scale';
+    vertical: 'top' | 'bottom' | 'center' | 'top-bottom' | 'scale';
+  };
+  parentFrameId?: number | null;
+  textStyleId?: string | null;
+  colorStyleId?: string | null;
+}
+
+interface Component {
+  id: number;
+  name: string;
+  masterElement: Element;
+  instances: number[];
+  variants?: ComponentVariant[];
+}
+
+interface ComponentVariant {
+  id: string;
+  name: string;
+  properties: Record<string, any>;
+}
+
+interface TextStyle {
+  id: string;
+  name: string;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: 'normal' | 'bold';
+  fontStyle: 'normal' | 'italic';
+  lineHeight?: number;
+  letterSpacing?: number;
+}
+
+interface ColorStyle {
+  id: string;
+  name: string;
+  color: string;
+  description?: string;
 }
 
 interface Group {
@@ -90,6 +142,14 @@ export default function DesignTool() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [darkMode, setDarkMode] = useState(false);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
+  const [drawPreview, setDrawPreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [components, setComponents] = useState<Component[]>([]);
+  // const [booleanMode, setBooleanMode] = useState<'union' | 'subtract' | 'intersect' | null>(null);
+  const [textStyles, setTextStyles] = useState<TextStyle[]>([]);
+  const [colorStyles, setColorStyles] = useState<ColorStyle[]>([]);
+  const [showStylesPanel, setShowStylesPanel] = useState(false);
 
   const zoomIn = () => {
     setZoom(Math.min(5, zoom * 1.2));
@@ -168,18 +228,18 @@ export default function DesignTool() {
     }
   };
 
-  const addElement = (type: 'rectangle' | 'circle' | 'text' | 'line') => {
+  const addElement = (type: 'rectangle' | 'circle' | 'text' | 'line' | 'frame', x: number, y: number, width: number, height: number) => {
     const maxZ = elements.length > 0 ? Math.max(...elements.map(e => e.zIndex)) : 0;
     const newElement: Element = {
       id: Date.now(),
-      type,
-      x: 100 + pan.x / zoom,
-      y: 100 + pan.y / zoom,
-      width: type === 'text' ? 200 : type === 'line' ? 150 : 150,
-      height: type === 'text' ? 50 : type === 'line' ? 2 : 150,
-      fill: type === 'text' ? '#000000' : type === 'line' ? 'transparent' : '#3b82f6',
-      stroke: type === 'line' ? '#000000' : undefined,
-      strokeWidth: type === 'line' ? 2 : undefined,
+      type: type === 'frame' ? 'frame' : type,
+      x,
+      y,
+      width,
+      height,
+      fill: type === 'text' ? '#000000' : type === 'line' ? 'transparent' : type === 'frame' ? 'rgba(255, 255, 255, 0.01)' : '#3b82f6',
+      stroke: type === 'line' ? '#000000' : type === 'frame' ? '#8b5cf6' : undefined,
+      strokeWidth: type === 'line' ? 2 : type === 'frame' ? 2 : undefined,
       text: type === 'text' ? 'Double-click to edit' : undefined,
       fontSize: 16,
       fontWeight: 'normal',
@@ -194,11 +254,13 @@ export default function DesignTool() {
       zIndex: maxZ + 1,
       locked: false,
       visible: true,
-      borderRadius: 0
+      borderRadius: 0,
+      isFrame: type === 'frame',
+      frameColor: type === 'frame' ? '#8b5cf6' : undefined,
+      blur: 0
     };
     setElements([...elements, newElement]);
     setSelectedIds([newElement.id]);
-    setTool('select');
     saveHistory();
   };
 
@@ -260,14 +322,9 @@ export default function DesignTool() {
       return;
     }
 
-    if (tool === 'rectangle') {
-      addElement('rectangle');
-    } else if (tool === 'circle') {
-      addElement('circle');
-    } else if (tool === 'text') {
-      addElement('text');
-    } else if (tool === 'line') {
-      addElement('line');
+    if (tool === 'text') {
+      addElement('text', x, y, 200, 50);
+      setTool('select');
     } else if (tool === 'select' && !e.shiftKey) {
       const clicked = [...elements]
         .filter(el => el.visible !== false)
@@ -283,13 +340,21 @@ export default function DesignTool() {
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (tool !== 'select') return;
-    
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     
     const x = (e.clientX - rect.left - pan.x) / zoom;
     const y = (e.clientY - rect.top - pan.y) / zoom;
+
+    // Start drawing shapes
+    if (tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'frame') {
+      setIsDrawing(true);
+      setDrawStart({ x, y });
+      setDrawPreview({ x, y, width: 0, height: 0 });
+      return;
+    }
+
+    if (tool !== 'select') return;
 
     // Check if clicking on an element
     const clicked = [...elements]
@@ -516,6 +581,30 @@ export default function DesignTool() {
     const mouseX = (e.clientX - rect.left - pan.x) / zoom;
     const mouseY = (e.clientY - rect.top - pan.y) / zoom;
 
+    // Handle drawing shapes
+    if (isDrawing && drawStart) {
+      const width = mouseX - drawStart.x;
+      const height = mouseY - drawStart.y;
+      
+      // Handle shift key for aspect ratio
+      let finalWidth = width;
+      let finalHeight = height;
+      
+      if (shiftKey && (tool === 'rectangle' || tool === 'circle' || tool === 'frame')) {
+        const size = Math.max(Math.abs(width), Math.abs(height));
+        finalWidth = width >= 0 ? size : -size;
+        finalHeight = height >= 0 ? size : -size;
+      }
+      
+      setDrawPreview({
+        x: finalWidth >= 0 ? drawStart.x : drawStart.x + finalWidth,
+        y: finalHeight >= 0 ? drawStart.y : drawStart.y + finalHeight,
+        width: Math.abs(finalWidth),
+        height: Math.abs(finalHeight)
+      });
+      return;
+    }
+
     // Handle selection box
     if (isSelectingBox && selectionBox) {
       setSelectionBox({ ...selectionBox, endX: mouseX, endY: mouseY });
@@ -711,6 +800,30 @@ export default function DesignTool() {
   };
 
   const handleMouseUp = () => {
+    // Finish drawing shape
+    if (isDrawing && drawStart && drawPreview) {
+      const minWidth = 5;
+      const minHeight = 5;
+      
+      if (drawPreview.width >= minWidth && drawPreview.height >= minHeight) {
+        if (tool === 'rectangle') {
+          addElement('rectangle', drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height);
+        } else if (tool === 'circle') {
+          addElement('circle', drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height);
+        } else if (tool === 'line') {
+          addElement('line', drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height);
+        } else if (tool === 'frame') {
+          addElement('frame', drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height);
+        }
+        setTool('select');
+      }
+      
+      setIsDrawing(false);
+      setDrawStart(null);
+      setDrawPreview(null);
+      return;
+    }
+
     if (isSelectingBox && selectionBox) {
       // Select elements within box
       const minX = Math.min(selectionBox.startX, selectionBox.endX);
@@ -769,6 +882,198 @@ export default function DesignTool() {
 
   const deselectAll = () => {
     setSelectedIds([]);
+  };
+
+  const createComponent = () => {
+    if (selectedIds.length !== 1) return;
+    
+    const element = elements.find(el => el.id === selectedIds[0]);
+    if (!element) return;
+
+    const newComponent: Component = {
+      id: Date.now(),
+      name: `Component ${components.length + 1}`,
+      masterElement: { ...element },
+      instances: [element.id],
+      variants: [
+        { id: 'default', name: 'Default', properties: {} },
+        { id: 'hover', name: 'Hover', properties: { opacity: 0.8 } },
+        { id: 'pressed', name: 'Pressed', properties: { opacity: 0.6 } }
+      ]
+    };
+
+    setComponents([...components, newComponent]);
+    setElements(elements.map(el => 
+      el.id === element.id 
+        ? { ...el, isComponent: true, componentId: newComponent.id, componentVariant: 'default' }
+        : el
+    ));
+    saveHistory();
+  };
+
+  const createTextStyle = () => {
+    if (selectedIds.length !== 1) return;
+    const element = elements.find(el => el.id === selectedIds[0]);
+    if (!element || element.type !== 'text') return;
+
+    const newStyle: TextStyle = {
+      id: `text-${Date.now()}`,
+      name: `Text Style ${textStyles.length + 1}`,
+      fontFamily: element.fontFamily || 'Arial, sans-serif',
+      fontSize: element.fontSize || 16,
+      fontWeight: element.fontWeight || 'normal',
+      fontStyle: element.fontStyle || 'normal'
+    };
+
+    setTextStyles([...textStyles, newStyle]);
+    setElements(elements.map(el => 
+      el.id === element.id ? { ...el, textStyleId: newStyle.id } : el
+    ));
+    saveHistory();
+  };
+
+  const createColorStyle = () => {
+    if (selectedIds.length !== 1) return;
+    const element = elements.find(el => el.id === selectedIds[0]);
+    if (!element) return;
+
+    const newStyle: ColorStyle = {
+      id: `color-${Date.now()}`,
+      name: `Color ${colorStyles.length + 1}`,
+      color: element.fill
+    };
+
+    setColorStyles([...colorStyles, newStyle]);
+    setElements(elements.map(el => 
+      el.id === element.id ? { ...el, colorStyleId: newStyle.id } : el
+    ));
+    saveHistory();
+  };
+
+  const applyTextStyle = (styleId: string) => {
+    const style = textStyles.find(s => s.id === styleId);
+    if (!style) return;
+
+    setElements(elements.map(el => 
+      selectedIds.includes(el.id) && el.type === 'text'
+        ? { 
+            ...el, 
+            fontFamily: style.fontFamily,
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            fontStyle: style.fontStyle,
+            textStyleId: styleId
+          }
+        : el
+    ));
+    saveHistory();
+  };
+
+  const applyColorStyle = (styleId: string) => {
+    const style = colorStyles.find(s => s.id === styleId);
+    if (!style) return;
+
+    setElements(elements.map(el => 
+      selectedIds.includes(el.id)
+        ? { ...el, fill: style.color, colorStyleId: styleId }
+        : el
+    ));
+    saveHistory();
+  };
+
+  const toggleAutoLayout = () => {
+    if (selectedIds.length !== 1) return;
+    
+    setElements(elements.map(el => 
+      selectedIds.includes(el.id)
+        ? { 
+            ...el, 
+            autoLayout: el.autoLayout ? undefined : {
+              direction: 'horizontal',
+              spacing: 10,
+              padding: 10,
+              alignment: 'start',
+              wrap: false
+            }
+          }
+        : el
+    ));
+    saveHistory();
+  };
+
+  const updateAutoLayout = <K extends keyof NonNullable<Element['autoLayout']>>(
+    property: K, 
+    value: NonNullable<Element['autoLayout']>[K]
+  ) => {
+    setElements(elements.map(el => 
+      selectedIds.includes(el.id) && el.autoLayout
+        ? { ...el, autoLayout: { ...el.autoLayout, [property]: value } }
+        : el
+    ));
+    saveHistory();
+  };
+
+  const setConstraints = (horizontal: string, vertical: string) => {
+    setElements(elements.map(el => 
+      selectedIds.includes(el.id)
+        ? { ...el, constraints: { horizontal: horizontal as any, vertical: vertical as any } }
+        : el
+    ));
+    saveHistory();
+  };
+
+  const booleanUnion = () => {
+    if (selectedIds.length < 2) return;
+    
+    const selectedElements = elements.filter(el => selectedIds.includes(el.id));
+    const minX = Math.min(...selectedElements.map(el => el.x));
+    const minY = Math.min(...selectedElements.map(el => el.y));
+    const maxX = Math.max(...selectedElements.map(el => el.x + el.width));
+    const maxY = Math.max(...selectedElements.map(el => el.y + el.height));
+
+    const maxZ = Math.max(...elements.map(e => e.zIndex));
+    const unionElement: Element = {
+      id: Date.now(),
+      type: 'rectangle',
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+      fill: selectedElements[0].fill,
+      rotation: 0,
+      opacity: 1,
+      layerName: `Union ${elements.length + 1}`,
+      groupId: null,
+      zIndex: maxZ + 1,
+      locked: false,
+      visible: true,
+      borderRadius: 0,
+      blur: 0
+    };
+
+    setElements([...elements.filter(el => !selectedIds.includes(el.id)), unionElement]);
+    setSelectedIds([unionElement.id]);
+    saveHistory();
+  };
+
+  const booleanSubtract = () => {
+    if (selectedIds.length !== 2) return;
+    
+    const base = elements.find(el => el.id === selectedIds[0]);
+    const subtract = elements.find(el => el.id === selectedIds[1]);
+    
+    if (!base || !subtract) return;
+
+    // Simple subtraction - just remove overlapping area
+    const remaining: Element = {
+      ...base,
+      id: Date.now(),
+      layerName: `Subtract ${elements.length + 1}`
+    };
+
+    setElements([...elements.filter(el => !selectedIds.includes(el.id)), remaining]);
+    setSelectedIds([remaining.id]);
+    saveHistory();
   };
 
   const deleteSelected = () => {
@@ -850,14 +1155,14 @@ export default function DesignTool() {
     saveHistory();
   };
 
-  // const alignTop = () => {
-  //   if (selectedIds.length === 0) return;
-  //   const minY = Math.min(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y));
-  //   setElements(elements.map(el => 
-  //     selectedIds.includes(el.id) ? { ...el, y: minY } : el
-  //   ));
-  //   saveHistory();
-  // };
+  const alignTop = () => {
+    if (selectedIds.length === 0) return;
+    const minY = Math.min(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y));
+    setElements(elements.map(el => 
+      selectedIds.includes(el.id) ? { ...el, y: minY } : el
+    ));
+    saveHistory();
+  };
 
   const alignMiddle = () => {
     if (selectedIds.length === 0) return;
@@ -872,14 +1177,14 @@ export default function DesignTool() {
     saveHistory();
   };
 
-  // const alignBottom = () => {
-  //   if (selectedIds.length === 0) return;
-  //   const maxY = Math.max(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y + el.height));
-  //   setElements(elements.map(el => 
-  //     selectedIds.includes(el.id) ? { ...el, y: maxY - el.height } : el
-  //   ));
-  //   saveHistory();
-  // };
+  const alignBottom = () => {
+    if (selectedIds.length === 0) return;
+    const maxY = Math.max(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y + el.height));
+    setElements(elements.map(el => 
+      selectedIds.includes(el.id) ? { ...el, y: maxY - el.height } : el
+    ));
+    saveHistory();
+  };
 
   const createGroup = () => {
     if (selectedIds.length < 2) return;
@@ -1072,6 +1377,8 @@ export default function DesignTool() {
         setTool('text');
       } else if (e.key === 'p') {
         setTool('pen');
+      } else if (e.key === 'f') {
+        setTool('frame');
       } else if (e.key === 'Escape' && isDrawingPath) {
         setPenPoints([]);
         setIsDrawingPath(false);
@@ -1107,10 +1414,10 @@ export default function DesignTool() {
       } else if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
         e.preventDefault();
         selectAll();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === '=') {
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === '=' || e.key === '+')) {
         e.preventDefault();
         zoomIn();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === '-') {
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === '-' || e.key === '_')) {
         e.preventDefault();
         zoomOut();
       } else if ((e.metaKey || e.ctrlKey) && e.key === '0') {
@@ -1164,7 +1471,7 @@ export default function DesignTool() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [selectedIds, elements, historyIndex, isPanning, isDrawingPath, penPoints, snapToGrid, showSmartGuides, editingTextId]);
+  }, [selectedIds, elements, historyIndex, isPanning, isDrawingPath, penPoints, snapToGrid, showSmartGuides, editingTextId, zoom]);
 
   const selectedElements = elements.filter(el => selectedIds.includes(el.id));
   const selectedElement = selectedElements.length === 1 ? selectedElements[0] : null;
@@ -1226,6 +1533,13 @@ export default function DesignTool() {
         >
           <Pen size={20} />
         </button>
+        <button
+          onClick={() => setTool('frame')}
+          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'frame' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
+          title="Frame (F)"
+        >
+          <Box size={20} />
+        </button>
         
         <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
         
@@ -1249,6 +1563,12 @@ export default function DesignTool() {
         </button>
         <button onClick={createGroup} disabled={selectedIds.length < 2} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Group (Cmd+G)">
           <FolderPlus size={20} />
+        </button>
+        <button onClick={createComponent} disabled={selectedIds.length !== 1} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Create Component">
+          <Package size={20} />
+        </button>
+        <button onClick={() => setShowStylesPanel(!showStylesPanel)} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'} ${showStylesPanel ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''}`} title="Styles Panel">
+          <Palette size={20} />
         </button>
         
         <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
@@ -1294,10 +1614,83 @@ export default function DesignTool() {
                   selectedIds.includes(el.id) ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : (darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100')
                 } ${!el.visible ? 'opacity-50' : ''}`}
               >
-                <span>{el.layerName || `${el.type} ${el.id}`}</span>
+                <span className="flex items-center gap-2">
+                  {el.isComponent && <Package size={12} />}
+                  {el.layerName || `${el.type} ${el.id}`}
+                </span>
                 {el.locked && <Lock size={14} />}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Styles Panel */}
+      {showStylesPanel && (
+        <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-r p-4 overflow-y-auto flex-shrink-0 h-screen`}>
+          <h3 className="font-semibold mb-3">Styles</h3>
+          
+          <div className="space-y-4">
+            {/* Text Styles */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-sm font-medium">Text Styles</h4>
+                <button 
+                  onClick={createTextStyle}
+                  disabled={selectedIds.length !== 1 || !elements.find(el => selectedIds.includes(el.id) && el.type === 'text')}
+                  className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-blue-900 hover:bg-blue-800 disabled:opacity-30' : 'bg-blue-100 hover:bg-blue-200 disabled:opacity-30'}`}
+                >
+                  + New
+                </button>
+              </div>
+              <div className="space-y-1">
+                {textStyles.map(style => (
+                  <div
+                    key={style.id}
+                    onClick={() => applyTextStyle(style.id)}
+                    className={`px-2 py-2 rounded text-xs cursor-pointer ${darkMode ? 'hover:bg-gray-700 bg-gray-750' : 'hover:bg-gray-100 bg-gray-50'}`}
+                  >
+                    <div className="font-medium">{style.name}</div>
+                    <div className="text-gray-500">{style.fontFamily} • {style.fontSize}px</div>
+                  </div>
+                ))}
+                {textStyles.length === 0 && (
+                  <p className="text-xs text-gray-500">No text styles yet</p>
+                )}
+              </div>
+            </div>
+
+            {/* Color Styles */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-sm font-medium">Color Styles</h4>
+                <button 
+                  onClick={createColorStyle}
+                  disabled={selectedIds.length !== 1}
+                  className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-blue-900 hover:bg-blue-800 disabled:opacity-30' : 'bg-blue-100 hover:bg-blue-200 disabled:opacity-30'}`}
+                >
+                  + New
+                </button>
+              </div>
+              <div className="space-y-1">
+                {colorStyles.map(style => (
+                  <div
+                    key={style.id}
+                    onClick={() => applyColorStyle(style.id)}
+                    className={`px-2 py-2 rounded text-xs cursor-pointer flex items-center gap-2 ${darkMode ? 'hover:bg-gray-700 bg-gray-750' : 'hover:bg-gray-100 bg-gray-50'}`}
+                  >
+                    <div className="w-6 h-6 rounded border" style={{ backgroundColor: style.color }}></div>
+                    <div>
+                      <div className="font-medium">{style.name}</div>
+                      <div className="text-gray-500">{style.color}</div>
+                    </div>
+                  </div>
+                ))}
+                {colorStyles.length === 0 && (
+                  <p className="text-xs text-gray-500">No color styles yet</p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1347,6 +1740,20 @@ export default function DesignTool() {
                 </button>
               </>
             )}
+
+            {selectedIds.length >= 2 && (
+              <>
+                <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
+                <button onClick={booleanUnion} className={`px-3 py-1 ${darkMode ? 'bg-purple-900 hover:bg-purple-800' : 'bg-purple-100 hover:bg-purple-200'} rounded text-sm`} title="Union">
+                  Union
+                </button>
+                {selectedIds.length === 2 && (
+                  <button onClick={booleanSubtract} className={`px-3 py-1 ${darkMode ? 'bg-purple-900 hover:bg-purple-800' : 'bg-purple-100 hover:bg-purple-200'} rounded text-sm`} title="Subtract">
+                    Subtract
+                  </button>
+                )}
+              </>
+            )}
             
             {selectedIds.length >= 3 && (
               <>
@@ -1374,6 +1781,12 @@ export default function DesignTool() {
                 </button>
                 <button onClick={alignMiddle} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Middle">
                   <AlignHorizontalJustifyCenter size={18} />
+                </button>
+                <button onClick={alignTop} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Top">
+                  <AlignVerticalJustifyCenter size={18} style={{ transform: 'rotate(180deg)' }} />
+                </button>
+                <button onClick={alignBottom} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Bottom">
+                  <AlignVerticalJustifyCenter size={18} />
                 </button>
               </>
             )}
@@ -1493,6 +1906,59 @@ export default function DesignTool() {
                 strokeDasharray="5,5"
               />
             )}
+
+            {/* Draw Preview */}
+            {isDrawing && drawPreview && (
+              <>
+                {tool === 'rectangle' && (
+                  <rect
+                    x={drawPreview.x}
+                    y={drawPreview.y}
+                    width={drawPreview.width}
+                    height={drawPreview.height}
+                    fill="rgba(59, 130, 246, 0.2)"
+                    stroke="#3b82f6"
+                    strokeWidth="2"
+                    strokeDasharray="5,5"
+                  />
+                )}
+                {tool === 'circle' && (
+                  <ellipse
+                    cx={drawPreview.x + drawPreview.width / 2}
+                    cy={drawPreview.y + drawPreview.height / 2}
+                    rx={drawPreview.width / 2}
+                    ry={drawPreview.height / 2}
+                    fill="rgba(59, 130, 246, 0.2)"
+                    stroke="#3b82f6"
+                    strokeWidth="2"
+                    strokeDasharray="5,5"
+                  />
+                )}
+                {tool === 'line' && (
+                  <line
+                    x1={drawPreview.x}
+                    y1={drawPreview.y + drawPreview.height / 2}
+                    x2={drawPreview.x + drawPreview.width}
+                    y2={drawPreview.y + drawPreview.height / 2}
+                    stroke="#3b82f6"
+                    strokeWidth="2"
+                    strokeDasharray="5,5"
+                  />
+                )}
+                {tool === 'frame' && (
+                  <rect
+                    x={drawPreview.x}
+                    y={drawPreview.y}
+                    width={drawPreview.width}
+                    height={drawPreview.height}
+                    fill="rgba(139, 92, 246, 0.1)"
+                    stroke="#8b5cf6"
+                    strokeWidth="2"
+                    strokeDasharray="5,5"
+                  />
+                )}
+              </>
+            )}
             
             {/* Elements */}
             {[...elements].filter(el => el.visible !== false).sort((a, b) => a.zIndex - b.zIndex).map(element => {
@@ -1502,14 +1968,30 @@ export default function DesignTool() {
                 : undefined;
               
               const isSelected = selectedIds.includes(element.id);
+              const blurFilter = element.blur ? `blur(${element.blur}px)` : '';
+              const combinedFilter = [shadowFilter, blurFilter].filter(Boolean).join(' ');
               
               return (
                 <g key={element.id}>
                   <g 
                     onMouseDown={(e) => handleMouseDown(e, element)} 
                     opacity={element.opacity}
-                    style={{ filter: shadowFilter }}
+                    style={{ filter: combinedFilter }}
                   >
+                    {element.type === 'frame' && (
+                      <rect
+                        x={element.x}
+                        y={element.y}
+                        width={element.width}
+                        height={element.height}
+                        fill={fillValue}
+                        stroke={element.frameColor || '#8b5cf6'}
+                        strokeWidth="2"
+                        rx={element.borderRadius || 0}
+                        ry={element.borderRadius || 0}
+                        style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
+                      />
+                    )}
                     {element.type === 'rectangle' && (
                       <rect
                         x={element.x}
@@ -1750,11 +2232,32 @@ export default function DesignTool() {
         </div>
       </div>
 
-      {/* Properties Panel */}
-      {(selectedElement || hasMultipleSelected) && (
-        <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-l p-4 overflow-y-auto flex-shrink-0 h-screen`}>
-          <h3 className="font-semibold mb-4">{hasMultipleSelected ? `Properties (${selectedIds.length} selected)` : 'Properties'}</h3>
-          
+      {/* Properties Panel - Always Visible */}
+      <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-l p-4 overflow-y-auto flex-shrink-0 h-screen`}>
+        <h3 className="font-semibold mb-4">
+          {hasMultipleSelected ? `Properties (${selectedIds.length} selected)` : selectedElement ? 'Properties' : 'Design'}
+        </h3>
+        
+        {!selectedElement && !hasMultipleSelected ? (
+          <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+            <p className="mb-4">Select an element to edit its properties</p>
+            <div className="space-y-2">
+              <div className={`p-3 ${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded`}>
+                <p className="font-medium mb-1">Quick Tips:</p>
+                <ul className="text-xs space-y-1">
+                  <li>• Press V for Select tool</li>
+                  <li>• Press R for Rectangle</li>
+                  <li>• Press C for Circle</li>
+                  <li>• Press T for Text</li>
+                  <li>• Press P for Pen tool</li>
+                  <li>• Cmd+A to select all</li>
+                  <li>• Cmd+D to duplicate</li>
+                  <li>• Cmd+G to group</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        ) : (
           <div className="space-y-3">
             {selectedElement && (
               <>
@@ -1970,6 +2473,126 @@ export default function DesignTool() {
                     </div>
                   </>
                 )}
+
+                {/* Component Variants */}
+                {selectedElement.isComponent && selectedElement.componentId && (
+                  <div>
+                    <label className="text-sm text-gray-600">Component Variant</label>
+                    <select
+                      value={selectedElement.componentVariant || 'default'}
+                      onChange={(e) => updateProperty('componentVariant', e.target.value)}
+                      className="w-full px-2 py-1 border rounded"
+                    >
+                      <option value="default">Default</option>
+                      <option value="hover">Hover</option>
+                      <option value="pressed">Pressed</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Auto Layout */}
+                {selectedElement.isFrame && (
+                  <div className="pt-4 border-t">
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="text-sm font-semibold">Auto Layout</h4>
+                      <button
+                        onClick={toggleAutoLayout}
+                        className={`text-xs px-2 py-1 rounded ${selectedElement.autoLayout ? 'bg-green-100 hover:bg-green-200' : 'bg-blue-100 hover:bg-blue-200'}`}
+                      >
+                        {selectedElement.autoLayout ? 'ON' : 'OFF'}
+                      </button>
+                    </div>
+                    
+                    {selectedElement.autoLayout && (
+                      <div className="space-y-2">
+                        <div>
+                          <label className="text-xs text-gray-600">Direction</label>
+                          <select
+                            value={selectedElement.autoLayout.direction}
+                            onChange={(e) => updateAutoLayout('direction', e.target.value as any)}
+                            className="w-full px-2 py-1 border rounded text-sm"
+                          >
+                            <option value="horizontal">Horizontal</option>
+                            <option value="vertical">Vertical</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label className="text-xs text-gray-600">Spacing</label>
+                          <input
+                            type="number"
+                            value={selectedElement.autoLayout.spacing}
+                            onChange={(e) => updateAutoLayout('spacing', parseInt(e.target.value) || 0)}
+                            className="w-full px-2 py-1 border rounded text-sm"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="text-xs text-gray-600">Padding</label>
+                          <input
+                            type="number"
+                            value={selectedElement.autoLayout.padding}
+                            onChange={(e) => updateAutoLayout('padding', parseInt(e.target.value) || 0)}
+                            className="w-full px-2 py-1 border rounded text-sm"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="text-xs text-gray-600">Alignment</label>
+                          <select
+                            value={selectedElement.autoLayout.alignment}
+                            onChange={(e) => updateAutoLayout('alignment', e.target.value as any)}
+                            className="w-full px-2 py-1 border rounded text-sm"
+                          >
+                            <option value="start">Start</option>
+                            <option value="center">Center</option>
+                            <option value="end">End</option>
+                            <option value="space-between">Space Between</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Constraints */}
+                {selectedElement.parentFrameId && (
+                  <div className="pt-4 border-t">
+                    <h4 className="text-sm font-semibold mb-2">Constraints</h4>
+                    
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-xs text-gray-600">Horizontal</label>
+                        <select
+                          value={selectedElement.constraints?.horizontal || 'left'}
+                          onChange={(e) => setConstraints(e.target.value, selectedElement.constraints?.vertical || 'top')}
+                          className="w-full px-2 py-1 border rounded text-sm"
+                        >
+                          <option value="left">Left</option>
+                          <option value="right">Right</option>
+                          <option value="center">Center</option>
+                          <option value="left-right">Left & Right</option>
+                          <option value="scale">Scale</option>
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="text-xs text-gray-600">Vertical</label>
+                        <select
+                          value={selectedElement.constraints?.vertical || 'top'}
+                          onChange={(e) => setConstraints(selectedElement.constraints?.horizontal || 'left', e.target.value)}
+                          className="w-full px-2 py-1 border rounded text-sm"
+                        >
+                          <option value="top">Top</option>
+                          <option value="bottom">Bottom</option>
+                          <option value="center">Center</option>
+                          <option value="top-bottom">Top & Bottom</option>
+                          <option value="scale">Scale</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
@@ -2042,8 +2665,8 @@ export default function DesignTool() {
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
