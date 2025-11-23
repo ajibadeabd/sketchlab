@@ -87,6 +87,49 @@ export default function DesignTool() {
   const [clipboard, setClipboard] = useState<Element[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [darkMode, setDarkMode] = useState(false);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+
+  const zoomIn = () => {
+    setZoom(Math.min(5, zoom * 1.2));
+  };
+
+  const zoomOut = () => {
+    setZoom(Math.max(0.1, zoom / 1.2));
+  };
+
+  const fitToScreen = () => {
+    if (!canvasContainerRef.current || elements.length === 0) {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
+
+    const containerRect = canvasContainerRef.current.getBoundingClientRect();
+    const containerWidth = containerRect.width;
+    const containerHeight = containerRect.height;
+
+    // Calculate bounds of all elements
+    const minX = Math.min(...elements.map(el => el.x));
+    const minY = Math.min(...elements.map(el => el.y));
+    const maxX = Math.max(...elements.map(el => el.x + el.width));
+    const maxY = Math.max(...elements.map(el => el.y + el.height));
+
+    const contentWidth = maxX - minX;
+    const contentHeight = maxY - minY;
+
+    // Calculate zoom to fit with padding
+    const padding = 50;
+    const zoomX = (containerWidth - padding * 2) / contentWidth;
+    const zoomY = (containerHeight - padding * 2) / contentHeight;
+    const newZoom = Math.min(zoomX, zoomY, 1); // Don't zoom in more than 100%
+
+    // Calculate pan to center content
+    const centerX = (containerWidth - contentWidth * newZoom) / 2 - minX * newZoom;
+    const centerY = (containerHeight - contentHeight * newZoom) / 2 - minY * newZoom;
+
+    setZoom(newZoom);
+    setPan({ x: centerX, y: centerY });
+  };
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -1062,6 +1105,15 @@ export default function DesignTool() {
       } else if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
         e.preventDefault();
         selectAll();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === '=') {
+        e.preventDefault();
+        zoomIn();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === '-') {
+        e.preventDefault();
+        zoomOut();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === '0') {
+        e.preventDefault();
+        fitToScreen();
       } else if (e.key === 'Escape' && selectedIds.length > 0 && !editingTextId) {
         deselectAll();
       } else if (e.key === 'Enter' && editingTextId !== null) {
@@ -1253,12 +1305,15 @@ export default function DesignTool() {
         {/* Top Bar */}
         <div className={`h-12 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-b flex items-center justify-between px-4 flex-shrink-0`}>
           <div className="flex items-center gap-2">
-            <button onClick={() => setZoom(Math.max(0.1, zoom - 0.1))} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`}>
+            <button onClick={zoomOut} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Zoom Out (Cmd+-)">
               <ZoomOut size={18} />
             </button>
             <span className="text-sm font-mono w-16 text-center">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom(Math.min(5, zoom + 0.1))} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`}>
+            <button onClick={zoomIn} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Zoom In (Cmd++)">
               <ZoomIn size={18} />
+            </button>
+            <button onClick={fitToScreen} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`} title="Fit to Screen (Cmd+0)">
+              Fit
             </button>
 
             <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
@@ -1345,7 +1400,7 @@ export default function DesignTool() {
         </div>
 
         {/* Canvas Area */}
-        <div className="flex-1 overflow-auto">
+        <div ref={canvasContainerRef} className="flex-1 overflow-auto">
           <svg
             ref={canvasRef}
             width="2000"
