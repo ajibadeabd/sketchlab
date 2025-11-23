@@ -3,7 +3,7 @@ import {
   Square, Circle, Type, MousePointer, Trash2, Copy, 
   Download, Layers, FolderPlus, Undo2, Redo2,
   ZoomIn, ZoomOut, Minus, Lock, Unlock, Upload,
-  AlignLeft, AlignCenter, AlignRight,
+  AlignLeft, AlignCenter, AlignRight, AlignVerticalJustifyCenter,
   AlignHorizontalJustifyCenter, Pen, Save
 } from 'lucide-react';
 
@@ -16,7 +16,7 @@ interface Point {
 
 interface Element {
   id: number;
-  type: 'rectangle' | 'circle' | 'text' | 'line' | 'path';
+  type: 'rectangle' | 'circle' | 'text' | 'line' | 'path' | 'image';
   x: number;
   y: number;
   width: number;
@@ -26,6 +26,11 @@ interface Element {
   strokeWidth?: number;
   text?: string;
   fontSize?: number;
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: 'none' | 'underline';
+  textAlign?: 'left' | 'center' | 'right';
+  fontFamily?: string;
   rotation?: number;
   opacity?: number;
   layerName?: string;
@@ -34,6 +39,8 @@ interface Element {
   locked?: boolean;
   visible?: boolean;
   path?: string;
+  borderRadius?: number;
+  imageUrl?: string;
   shadow?: {
     offsetX: number;
     offsetY: number;
@@ -75,6 +82,10 @@ export default function DesignTool() {
   const [editingText, setEditingText] = useState('');
   const [showSmartGuides, setShowSmartGuides] = useState(true);
   const [smartGuides, setSmartGuides] = useState<Array<{ type: 'vertical' | 'horizontal'; position: number }>>([]);
+  const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
+  const [isSelectingBox, setIsSelectingBox] = useState(false);
+  const [clipboard, setClipboard] = useState<Element[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -125,18 +136,65 @@ export default function DesignTool() {
       strokeWidth: type === 'line' ? 2 : undefined,
       text: type === 'text' ? 'Double-click to edit' : undefined,
       fontSize: 16,
+      fontWeight: 'normal',
+      fontStyle: 'normal',
+      textDecoration: 'none',
+      textAlign: 'left',
+      fontFamily: 'Arial, sans-serif',
       rotation: 0,
       opacity: 1,
       layerName: `${type.charAt(0).toUpperCase() + type.slice(1)} ${elements.length + 1}`,
       groupId: null,
       zIndex: maxZ + 1,
       locked: false,
-      visible: true
+      visible: true,
+      borderRadius: 0
     };
     setElements([...elements, newElement]);
     setSelectedIds([newElement.id]);
     setTool('select');
     saveHistory();
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const imageUrl = event.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const maxZ = elements.length > 0 ? Math.max(...elements.map(el => el.zIndex)) : 0;
+        const newElement: Element = {
+          id: Date.now(),
+          type: 'image',
+          x: 100,
+          y: 100,
+          width: Math.min(img.width, 400),
+          height: Math.min(img.height, 400),
+          fill: 'transparent',
+          imageUrl,
+          rotation: 0,
+          opacity: 1,
+          layerName: `Image ${elements.length + 1}`,
+          groupId: null,
+          zIndex: maxZ + 1,
+          locked: false,
+          visible: true,
+          borderRadius: 0
+        };
+        setElements([...elements, newElement]);
+        setSelectedIds([newElement.id]);
+        saveHistory();
+      };
+      img.src = imageUrl;
+    };
+    reader.readAsDataURL(file);
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -175,6 +233,32 @@ export default function DesignTool() {
         );
       
       setSelectedIds(clicked ? [clicked.id] : []);
+    }
+  };
+
+  const handleCanvasMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (tool !== 'select') return;
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const x = (e.clientX - rect.left - pan.x) / zoom;
+    const y = (e.clientY - rect.top - pan.y) / zoom;
+
+    // Check if clicking on an element
+    const clicked = [...elements]
+      .filter(el => el.visible !== false)
+      .sort((a, b) => b.zIndex - a.zIndex)
+      .find(el => 
+        !el.locked &&
+        x >= el.x && x <= el.x + el.width &&
+        y >= el.y && y <= el.y + el.height
+      );
+
+    if (!clicked) {
+      // Start selection box
+      setIsSelectingBox(true);
+      setSelectionBox({ startX: x, startY: y, endX: x, endY: y });
     }
   };
 
@@ -386,6 +470,12 @@ export default function DesignTool() {
     const mouseX = (e.clientX - rect.left - pan.x) / zoom;
     const mouseY = (e.clientY - rect.top - pan.y) / zoom;
 
+    // Handle selection box
+    if (isSelectingBox && selectionBox) {
+      setSelectionBox({ ...selectionBox, endX: mouseX, endY: mouseY });
+      return;
+    }
+
     // Handle resizing
     if (resizing && resizeStart) {
       const element = elements.find(el => el.id === resizing.id);
@@ -575,6 +665,25 @@ export default function DesignTool() {
   };
 
   const handleMouseUp = () => {
+    if (isSelectingBox && selectionBox) {
+      // Select elements within box
+      const minX = Math.min(selectionBox.startX, selectionBox.endX);
+      const maxX = Math.max(selectionBox.startX, selectionBox.endX);
+      const minY = Math.min(selectionBox.startY, selectionBox.endY);
+      const maxY = Math.max(selectionBox.startY, selectionBox.endY);
+
+      const selected = elements.filter(el => 
+        !el.locked &&
+        el.visible !== false &&
+        el.x >= minX && el.x + el.width <= maxX &&
+        el.y >= minY && el.y + el.height <= maxY
+      ).map(el => el.id);
+
+      setSelectedIds(selected);
+      setIsSelectingBox(false);
+      setSelectionBox(null);
+    }
+
     if (dragging || resizing) {
       saveHistory();
       setDragging(null);
@@ -583,6 +692,28 @@ export default function DesignTool() {
       setSmartGuides([]);
     }
     setIsPanning(false);
+  };
+
+  const copySelected = () => {
+    const selected = elements.filter(el => selectedIds.includes(el.id));
+    setClipboard(selected);
+  };
+
+  const pasteFromClipboard = () => {
+    if (clipboard.length === 0) return;
+
+    const maxZ = elements.length > 0 ? Math.max(...elements.map(e => e.zIndex)) : 0;
+    const newElements = clipboard.map((el, index) => ({
+      ...el,
+      id: Date.now() + index,
+      x: el.x + 20,
+      y: el.y + 20,
+      zIndex: maxZ + index + 1
+    }));
+
+    setElements([...elements, ...newElements]);
+    setSelectedIds(newElements.map(el => el.id));
+    saveHistory();
   };
 
   const deleteSelected = () => {
@@ -664,14 +795,14 @@ export default function DesignTool() {
     saveHistory();
   };
 
-  // const alignTop = () => {
-  //   if (selectedIds.length === 0) return;
-  //   const minY = Math.min(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y));
-  //   setElements(elements.map(el => 
-  //     selectedIds.includes(el.id) ? { ...el, y: minY } : el
-  //   ));
-  //   saveHistory();
-  // };
+  const alignTop = () => {
+    if (selectedIds.length === 0) return;
+    const minY = Math.min(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y));
+    setElements(elements.map(el => 
+      selectedIds.includes(el.id) ? { ...el, y: minY } : el
+    ));
+    saveHistory();
+  };
 
   const alignMiddle = () => {
     if (selectedIds.length === 0) return;
@@ -686,14 +817,14 @@ export default function DesignTool() {
     saveHistory();
   };
 
-  // const alignBottom = () => {
-  //   if (selectedIds.length === 0) return;
-  //   const maxY = Math.max(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y + el.height));
-  //   setElements(elements.map(el => 
-  //     selectedIds.includes(el.id) ? { ...el, y: maxY - el.height } : el
-  //   ));
-  //   saveHistory();
-  // };
+  const alignBottom = () => {
+    if (selectedIds.length === 0) return;
+    const maxY = Math.max(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y + el.height));
+    setElements(elements.map(el => 
+      selectedIds.includes(el.id) ? { ...el, y: maxY - el.height } : el
+    ));
+    saveHistory();
+  };
 
   const createGroup = () => {
     if (selectedIds.length < 2) return;
@@ -908,11 +1039,45 @@ export default function DesignTool() {
       } else if ((e.metaKey || e.ctrlKey) && e.key === "'") {
         e.preventDefault();
         setShowSmartGuides(!showSmartGuides);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+        e.preventDefault();
+        copySelected();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+        e.preventDefault();
+        pasteFromClipboard();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'x') {
+        e.preventDefault();
+        copySelected();
+        deleteSelected();
       } else if (e.key === 'Enter' && editingTextId !== null) {
         finishTextEdit();
       } else if (e.key === 'Escape' && editingTextId !== null) {
         setEditingTextId(null);
         setEditingText('');
+      } else if (e.key === 'ArrowUp' && selectedIds.length > 0) {
+        e.preventDefault();
+        const shift = e.shiftKey ? 10 : 1;
+        setElements(elements.map(el => 
+          selectedIds.includes(el.id) ? { ...el, y: el.y - shift } : el
+        ));
+      } else if (e.key === 'ArrowDown' && selectedIds.length > 0) {
+        e.preventDefault();
+        const shift = e.shiftKey ? 10 : 1;
+        setElements(elements.map(el => 
+          selectedIds.includes(el.id) ? { ...el, y: el.y + shift } : el
+        ));
+      } else if (e.key === 'ArrowLeft' && selectedIds.length > 0) {
+        e.preventDefault();
+        const shift = e.shiftKey ? 10 : 1;
+        setElements(elements.map(el => 
+          selectedIds.includes(el.id) ? { ...el, x: el.x - shift } : el
+        ));
+      } else if (e.key === 'ArrowRight' && selectedIds.length > 0) {
+        e.preventDefault();
+        const shift = e.shiftKey ? 10 : 1;
+        setElements(elements.map(el => 
+          selectedIds.includes(el.id) ? { ...el, x: el.x + shift } : el
+        ));
       }
     };
     
@@ -1021,6 +1186,19 @@ export default function DesignTool() {
         <button onClick={exportSVG} className="p-3 rounded hover:bg-gray-100" title="Export SVG">
           <Download size={20} />
         </button>
+        
+        <div className="h-px w-10 bg-gray-200 my-2" />
+        
+        <label className="p-3 rounded hover:bg-gray-100 cursor-pointer" title="Upload Image">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageUpload}
+            className="hidden"
+          />
+          <Upload size={20} />
+        </label>
       </div>
 
       {/* Layers Panel */}
@@ -1136,6 +1314,7 @@ export default function DesignTool() {
             height="2000"
             className="bg-white"
             onClick={handleCanvasClick}
+            onMouseDown={handleCanvasMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             style={{ 
@@ -1204,6 +1383,20 @@ export default function DesignTool() {
                 />
               )
             ))}
+
+            {/* Selection Box */}
+            {selectionBox && (
+              <rect
+                x={Math.min(selectionBox.startX, selectionBox.endX)}
+                y={Math.min(selectionBox.startY, selectionBox.endY)}
+                width={Math.abs(selectionBox.endX - selectionBox.startX)}
+                height={Math.abs(selectionBox.endY - selectionBox.startY)}
+                fill="rgba(59, 130, 246, 0.1)"
+                stroke="#3b82f6"
+                strokeWidth="1"
+                strokeDasharray="5,5"
+              />
+            )}
             
             {/* Elements */}
             {[...elements].filter(el => el.visible !== false).sort((a, b) => a.zIndex - b.zIndex).map(element => {
@@ -1230,6 +1423,8 @@ export default function DesignTool() {
                         fill={fillValue}
                         stroke={isSelected ? '#3b82f6' : element.stroke || 'none'}
                         strokeWidth={isSelected ? 2 : element.strokeWidth || 0}
+                        rx={element.borderRadius || 0}
+                        ry={element.borderRadius || 0}
                         style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
                         transform={`rotate(${element.rotation || 0} ${element.x + element.width/2} ${element.y + element.height/2})`}
                       />
@@ -1244,6 +1439,17 @@ export default function DesignTool() {
                         stroke={isSelected ? '#3b82f6' : element.stroke || 'none'}
                         strokeWidth={isSelected ? 2 : element.strokeWidth || 0}
                         style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
+                      />
+                    )}
+                    {element.type === 'image' && element.imageUrl && (
+                      <image
+                        x={element.x}
+                        y={element.y}
+                        width={element.width}
+                        height={element.height}
+                        href={element.imageUrl}
+                        style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
+                        clipPath={element.borderRadius ? `inset(0 round ${element.borderRadius}px)` : undefined}
                       />
                     )}
                     {element.type === 'line' && (
@@ -1312,6 +1518,11 @@ export default function DesignTool() {
                             y={element.y + (element.fontSize || 16) + 10}
                             fill={element.fill}
                             fontSize={element.fontSize}
+                            fontWeight={element.fontWeight || 'normal'}
+                            fontStyle={element.fontStyle || 'normal'}
+                            textDecoration={element.textDecoration || 'none'}
+                            textAnchor={element.textAlign === 'center' ? 'middle' : element.textAlign === 'right' ? 'end' : 'start'}
+                            fontFamily={element.fontFamily || 'Arial, sans-serif'}
                             style={{ cursor: element.locked ? 'not-allowed' : 'move', userSelect: 'none' }}
                             onDoubleClick={(e) => handleTextDoubleClick(e, element)}
                           >
@@ -1323,7 +1534,7 @@ export default function DesignTool() {
                   </g>
                   
                   {/* Resize Handles */}
-                  {isSelected && !element.locked && element.type !== 'line' && element.type !== 'path' && (
+                  {isSelected && !element.locked && element.type !== 'line' && element.type !== 'path' && selectedIds.length === 1 && (
                     <g>
                       {/* Corner handles */}
                       <rect
@@ -1537,7 +1748,20 @@ export default function DesignTool() {
               />
             </div>
 
-            {selectedElement.type !== 'text' && (
+            {(selectedElement.type === 'rectangle' || selectedElement.type === 'image') && (
+              <div>
+                <label className="text-sm text-gray-600">Border Radius</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={selectedElement.borderRadius || 0}
+                  onChange={(e) => updateProperty('borderRadius', parseInt(e.target.value) || 0)}
+                  className="w-full px-2 py-1 border rounded text-sm"
+                />
+              </div>
+            )}
+
+            {selectedElement.type !== 'text' && selectedElement.type !== 'image' && (
               <>
                 <div>
                   <label className="text-sm text-gray-600">Stroke Color</label>
@@ -1581,6 +1805,70 @@ export default function DesignTool() {
                     onChange={(e) => updateProperty('fontSize', parseInt(e.target.value) || 12)}
                     className="w-full px-2 py-1 border rounded"
                   />
+                </div>
+
+                <div>
+                  <label className="text-sm text-gray-600">Font Family</label>
+                  <select
+                    value={selectedElement.fontFamily || 'Arial, sans-serif'}
+                    onChange={(e) => updateProperty('fontFamily', e.target.value)}
+                    className="w-full px-2 py-1 border rounded"
+                  >
+                    <option value="Arial, sans-serif">Arial</option>
+                    <option value="'Times New Roman', serif">Times New Roman</option>
+                    <option value="'Courier New', monospace">Courier New</option>
+                    <option value="Georgia, serif">Georgia</option>
+                    <option value="Verdana, sans-serif">Verdana</option>
+                    <option value="'Comic Sans MS', cursive">Comic Sans MS</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => updateProperty('fontWeight', selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
+                    className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.fontWeight === 'bold' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                  >
+                    <strong>B</strong> Bold
+                  </button>
+                  <button
+                    onClick={() => updateProperty('fontStyle', selectedElement.fontStyle === 'italic' ? 'normal' : 'italic')}
+                    className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.fontStyle === 'italic' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                  >
+                    <em>I</em> Italic
+                  </button>
+                </div>
+
+                <div>
+                  <button
+                    onClick={() => updateProperty('textDecoration', selectedElement.textDecoration === 'underline' ? 'none' : 'underline')}
+                    className={`w-full px-3 py-2 rounded text-sm ${selectedElement.textDecoration === 'underline' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                  >
+                    <u>U</u> Underline
+                  </button>
+                </div>
+
+                <div>
+                  <label className="text-sm text-gray-600">Text Align</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => updateProperty('textAlign', 'left')}
+                      className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'left' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                    >
+                      Left
+                    </button>
+                    <button
+                      onClick={() => updateProperty('textAlign', 'center')}
+                      className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'center' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                    >
+                      Center
+                    </button>
+                    <button
+                      onClick={() => updateProperty('textAlign', 'right')}
+                      className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'right' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                    >
+                      Right
+                    </button>
+                  </div>
                 </div>
               </>
             )}
