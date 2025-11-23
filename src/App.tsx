@@ -4,7 +4,7 @@ import {
   Download, Layers, FolderPlus, Undo2, Redo2,
   ZoomIn, ZoomOut, Minus, Lock, Unlock, Upload,
   AlignLeft, AlignCenter, AlignRight, AlignVerticalJustifyCenter,
-  AlignHorizontalJustifyCenter, Pen, Save
+  AlignHorizontalJustifyCenter, Pen, Save, Moon, Sun
 } from 'lucide-react';
 
 type ToolType = 'select' | 'rectangle' | 'circle' | 'text' | 'line' | 'pen';
@@ -86,6 +86,7 @@ export default function DesignTool() {
   const [isSelectingBox, setIsSelectingBox] = useState(false);
   const [clipboard, setClipboard] = useState<Element[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [darkMode, setDarkMode] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -716,6 +717,15 @@ export default function DesignTool() {
     saveHistory();
   };
 
+  const selectAll = () => {
+    const allIds = elements.filter(el => !el.locked && el.visible !== false).map(el => el.id);
+    setSelectedIds(allIds);
+  };
+
+  const deselectAll = () => {
+    setSelectedIds([]);
+  };
+
   const deleteSelected = () => {
     setElements(elements.filter(el => !selectedIds.includes(el.id)));
     setSelectedIds([]);
@@ -1049,6 +1059,11 @@ export default function DesignTool() {
         e.preventDefault();
         copySelected();
         deleteSelected();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+        e.preventDefault();
+        selectAll();
+      } else if (e.key === 'Escape' && selectedIds.length > 0 && !editingTextId) {
+        deselectAll();
       } else if (e.key === 'Enter' && editingTextId !== null) {
         finishTextEdit();
       } else if (e.key === 'Escape' && editingTextId !== null) {
@@ -1099,97 +1114,108 @@ export default function DesignTool() {
 
   const selectedElements = elements.filter(el => selectedIds.includes(el.id));
   const selectedElement = selectedElements.length === 1 ? selectedElements[0] : null;
+  const hasMultipleSelected = selectedIds.length > 1;
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className={`flex h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-100'}`}>
       {/* Toolbar */}
-      <div className="w-16 bg-white border-r border-gray-200 flex flex-col items-center py-4 gap-2 overflow-y-auto">
+      <div className={`w-16 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-r flex flex-col items-center py-4 gap-2 overflow-y-auto`}>
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+          title="Toggle Dark Mode"
+        >
+          {darkMode ? <Sun size={20} className="text-yellow-400" /> : <Moon size={20} />}
+        </button>
+
+        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
+        
         <button
           onClick={() => setTool('select')}
-          className={`p-3 rounded hover:bg-gray-100 ${tool === 'select' ? 'bg-blue-100' : ''}`}
+          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'select' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
           title="Select (V)"
         >
           <MousePointer size={20} />
         </button>
         <button
           onClick={() => setTool('rectangle')}
-          className={`p-3 rounded hover:bg-gray-100 ${tool === 'rectangle' ? 'bg-blue-100' : ''}`}
+          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'rectangle' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
           title="Rectangle (R)"
         >
           <Square size={20} />
         </button>
         <button
           onClick={() => setTool('circle')}
-          className={`p-3 rounded hover:bg-gray-100 ${tool === 'circle' ? 'bg-blue-100' : ''}`}
+          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'circle' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
           title="Circle (C)"
         >
           <Circle size={20} />
         </button>
         <button
           onClick={() => setTool('text')}
-          className={`p-3 rounded hover:bg-gray-100 ${tool === 'text' ? 'bg-blue-100' : ''}`}
+          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'text' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
           title="Text (T)"
         >
           <Type size={20} />
         </button>
         <button
           onClick={() => setTool('line')}
-          className={`p-3 rounded hover:bg-gray-100 ${tool === 'line' ? 'bg-blue-100' : ''}`}
+          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'line' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
           title="Line (L)"
         >
           <Minus size={20} />
         </button>
         <button
           onClick={() => setTool('pen')}
-          className={`p-3 rounded hover:bg-gray-100 ${tool === 'pen' ? 'bg-blue-100' : ''}`}
+          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'pen' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
           title="Pen Tool (P)"
         >
           <Pen size={20} />
         </button>
         
-        <div className="h-px w-10 bg-gray-200 my-2" />
+        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
         
-        <button onClick={undo} disabled={historyIndex <= 0} className="p-3 rounded hover:bg-gray-100 disabled:opacity-30" title="Undo (Cmd+Z)">
+        <button onClick={undo} disabled={historyIndex <= 0} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Undo (Cmd+Z)">
           <Undo2 size={20} />
         </button>
-        <button onClick={redo} disabled={historyIndex >= history.length - 1} className="p-3 rounded hover:bg-gray-100 disabled:opacity-30" title="Redo (Cmd+Shift+Z)">
+        <button onClick={redo} disabled={historyIndex >= history.length - 1} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Redo (Cmd+Shift+Z)">
           <Redo2 size={20} />
         </button>
         
-        <div className="h-px w-10 bg-gray-200 my-2" />
+        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
         
-        <button onClick={duplicateSelected} disabled={selectedIds.length === 0} className="p-3 rounded hover:bg-gray-100 disabled:opacity-30" title="Duplicate (Cmd+D)">
+        <button onClick={duplicateSelected} disabled={selectedIds.length === 0} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Duplicate (Cmd+D)">
           <Copy size={20} />
         </button>
-        <button onClick={deleteSelected} disabled={selectedIds.length === 0} className="p-3 rounded hover:bg-gray-100 disabled:opacity-30" title="Delete">
+        <button onClick={deleteSelected} disabled={selectedIds.length === 0} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Delete">
           <Trash2 size={20} />
         </button>
-        <button onClick={toggleLock} disabled={selectedIds.length === 0} className="p-3 rounded hover:bg-gray-100 disabled:opacity-30" title="Lock/Unlock (Cmd+L)">
+        <button onClick={toggleLock} disabled={selectedIds.length === 0} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Lock/Unlock (Cmd+L)">
           {selectedElement?.locked ? <Lock size={20} /> : <Unlock size={20} />}
         </button>
-        <button onClick={createGroup} disabled={selectedIds.length < 2} className="p-3 rounded hover:bg-gray-100 disabled:opacity-30" title="Group (Cmd+G)">
+        <button onClick={createGroup} disabled={selectedIds.length < 2} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Group (Cmd+G)">
           <FolderPlus size={20} />
         </button>
         
-        <div className="h-px w-10 bg-gray-200 my-2" />
+        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
         
-        <button onClick={() => setShowLayers(!showLayers)} className="p-3 rounded hover:bg-gray-100" title="Toggle Layers">
+        <button onClick={() => setShowLayers(!showLayers)} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'}`} title="Toggle Layers">
           <Layers size={20} />
         </button>
-        <label className="p-3 rounded hover:bg-gray-100 cursor-pointer" title="Import JSON">
+        <label className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'} cursor-pointer`} title="Import JSON">
           <Upload size={20} />
           <input type="file" accept=".json" onChange={importJSON} className="hidden" />
         </label>
-        <button onClick={exportJSON} className="p-3 rounded hover:bg-gray-100" title="Export JSON">
+        <button onClick={exportJSON} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'}`} title="Export JSON">
           <Save size={20} />
         </button>
-        <button onClick={exportSVG} className="p-3 rounded hover:bg-gray-100" title="Export SVG">
+        <button onClick={exportSVG} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'}`} title="Export SVG">
           <Download size={20} />
         </button>
         
-        <div className="h-px w-10 bg-gray-200 my-2" />
+        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
         
-        <label className="p-3 rounded hover:bg-gray-100 cursor-pointer" title="Upload Image">
+        <label className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'} cursor-pointer`} title="Upload Image">
           <input
             ref={fileInputRef}
             type="file"
@@ -1203,7 +1229,7 @@ export default function DesignTool() {
 
       {/* Layers Panel */}
       {showLayers && (
-        <div className="w-64 bg-white border-r border-gray-200 p-4 overflow-y-auto">
+        <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-r p-4 overflow-y-auto`}>
           <h3 className="font-semibold mb-3">Layers</h3>
           <div className="space-y-1">
             {[...elements].sort((a, b) => b.zIndex - a.zIndex).map(el => (
@@ -1211,7 +1237,7 @@ export default function DesignTool() {
                 key={el.id}
                 onClick={() => setSelectedIds([el.id])}
                 className={`px-3 py-2 rounded text-sm cursor-pointer flex justify-between items-center ${
-                  selectedIds.includes(el.id) ? 'bg-blue-100' : 'hover:bg-gray-100'
+                  selectedIds.includes(el.id) ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : (darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100')
                 } ${!el.visible ? 'opacity-50' : ''}`}
               >
                 <span>{el.layerName || `${el.type} ${el.id}`}</span>
@@ -1225,21 +1251,21 @@ export default function DesignTool() {
       {/* Canvas */}
       <div className="flex-1 flex flex-col">
         {/* Top Bar */}
-        <div className="h-12 bg-white border-b border-gray-200 flex items-center justify-between px-4">
+        <div className={`h-12 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-b flex items-center justify-between px-4`}>
           <div className="flex items-center gap-2">
-            <button onClick={() => setZoom(Math.max(0.1, zoom - 0.1))} className="p-2 hover:bg-gray-100 rounded">
+            <button onClick={() => setZoom(Math.max(0.1, zoom - 0.1))} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`}>
               <ZoomOut size={18} />
             </button>
             <span className="text-sm font-mono w-16 text-center">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom(Math.min(5, zoom + 0.1))} className="p-2 hover:bg-gray-100 rounded">
+            <button onClick={() => setZoom(Math.min(5, zoom + 0.1))} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`}>
               <ZoomIn size={18} />
             </button>
 
-            <div className="h-6 w-px bg-gray-300 mx-2" />
+            <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
             
             <button 
               onClick={() => setSnapToGrid(!snapToGrid)}
-              className={`px-3 py-1 rounded text-sm ${snapToGrid ? 'bg-blue-100 text-blue-700' : 'bg-gray-100'}`}
+              className={`px-3 py-1 rounded text-sm ${snapToGrid ? (darkMode ? 'bg-blue-900 text-blue-300' : 'bg-blue-100 text-blue-700') : (darkMode ? 'bg-gray-700' : 'bg-gray-100')}`}
               title="Toggle Snap to Grid (Cmd+;)"
             >
               Snap: {snapToGrid ? 'ON' : 'OFF'}
@@ -1247,19 +1273,31 @@ export default function DesignTool() {
 
             <button 
               onClick={() => setShowSmartGuides(!showSmartGuides)}
-              className={`px-3 py-1 rounded text-sm ${showSmartGuides ? 'bg-purple-100 text-purple-700' : 'bg-gray-100'}`}
+              className={`px-3 py-1 rounded text-sm ${showSmartGuides ? (darkMode ? 'bg-purple-900 text-purple-300' : 'bg-purple-100 text-purple-700') : (darkMode ? 'bg-gray-700' : 'bg-gray-100')}`}
               title="Toggle Smart Guides (Cmd+')"
             >
               Guides: {showSmartGuides ? 'ON' : 'OFF'}
             </button>
+
+            {selectedIds.length > 0 && (
+              <>
+                <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
+                <button onClick={selectAll} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`} title="Select All (Cmd+A)">
+                  Select All ({elements.filter(el => !el.locked && el.visible !== false).length})
+                </button>
+                <button onClick={deselectAll} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`} title="Deselect (Esc)">
+                  Deselect ({selectedIds.length})
+                </button>
+              </>
+            )}
             
             {selectedIds.length >= 3 && (
               <>
-                <div className="h-6 w-px bg-gray-300 mx-2" />
-                <button onClick={distributeHorizontally} className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm" title="Distribute Horizontally">
+                <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
+                <button onClick={distributeHorizontally} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`} title="Distribute Horizontally">
                   Distribute H
                 </button>
-                <button onClick={distributeVertically} className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm" title="Distribute Vertically">
+                <button onClick={distributeVertically} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`} title="Distribute Vertically">
                   Distribute V
                 </button>
               </>
@@ -1267,17 +1305,17 @@ export default function DesignTool() {
             
             {selectedIds.length >= 2 && (
               <>
-                <div className="h-6 w-px bg-gray-300 mx-2" />
-                <button onClick={alignLeft} className="p-2 hover:bg-gray-100 rounded" title="Align Left">
+                <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
+                <button onClick={alignLeft} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Left">
                   <AlignLeft size={18} />
                 </button>
-                <button onClick={alignCenter} className="p-2 hover:bg-gray-100 rounded" title="Align Center">
+                <button onClick={alignCenter} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Center">
                   <AlignCenter size={18} />
                 </button>
-                <button onClick={alignRight} className="p-2 hover:bg-gray-100 rounded" title="Align Right">
+                <button onClick={alignRight} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Right">
                   <AlignRight size={18} />
                 </button>
-                <button onClick={alignMiddle} className="p-2 hover:bg-gray-100 rounded" title="Align Middle">
+                <button onClick={alignMiddle} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Middle">
                   <AlignHorizontalJustifyCenter size={18} />
                 </button>
               </>
@@ -1286,21 +1324,21 @@ export default function DesignTool() {
           
           <div className="flex gap-2">
             {(shiftKey || altKey) && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 rounded text-sm text-blue-700">
+              <div className={`flex items-center gap-2 px-3 py-1 ${darkMode ? 'bg-blue-900 text-blue-300' : 'bg-blue-50 text-blue-700'} rounded text-sm`}>
                 {shiftKey && <span>⇧ Aspect Ratio Lock</span>}
                 {shiftKey && altKey && <span>•</span>}
                 {altKey && <span>⌥ Resize from Center</span>}
               </div>
             )}
             {isDrawingPath && (
-              <button onClick={finishPath} className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded text-sm">
+              <button onClick={finishPath} className={`px-3 py-1 ${darkMode ? 'bg-green-700 hover:bg-green-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded text-sm`}>
                 Finish Path (Enter)
               </button>
             )}
-            <button onClick={exportSVG} className="px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm">
+            <button onClick={exportSVG} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`}>
               Export SVG
             </button>
-            <button onClick={exportPNG} className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm">
+            <button onClick={exportPNG} className={`px-3 py-1 ${darkMode ? 'bg-blue-700 hover:bg-blue-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded text-sm`}>
               Export PNG
             </button>
           </div>
@@ -1312,7 +1350,7 @@ export default function DesignTool() {
             ref={canvasRef}
             width="2000"
             height="2000"
-            className="bg-white"
+            className={darkMode ? 'bg-gray-900' : 'bg-white'}
             onClick={handleCanvasClick}
             onMouseDown={handleCanvasMouseDown}
             onMouseMove={handleMouseMove}
@@ -1655,276 +1693,296 @@ export default function DesignTool() {
       </div>
 
       {/* Properties Panel */}
-      {selectedElement && (
-        <div className="w-64 bg-white border-l border-gray-200 p-4 overflow-y-auto">
-          <h3 className="font-semibold mb-4">Properties</h3>
+      {(selectedElement || hasMultipleSelected) && (
+        <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-l p-4 overflow-y-auto`}>
+          <h3 className="font-semibold mb-4">{hasMultipleSelected ? `Properties (${selectedIds.length} selected)` : 'Properties'}</h3>
           
           <div className="space-y-3">
-            <div>
-              <label className="text-sm text-gray-600">Layer Name</label>
-              <input
-                type="text"
-                value={selectedElement.layerName || ''}
-                onChange={(e) => updateProperty('layerName', e.target.value)}
-                className="w-full px-2 py-1 border rounded"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-sm text-gray-600">X</label>
-                <input
-                  type="number"
-                  value={Math.round(selectedElement.x)}
-                  onChange={(e) => updateProperty('x', parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-1 border rounded text-sm"
-                />
-              </div>
-              
-              <div>
-                <label className="text-sm text-gray-600">Y</label>
-                <input
-                  type="number"
-                  value={Math.round(selectedElement.y)}
-                  onChange={(e) => updateProperty('y', parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-1 border rounded text-sm"
-                />
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-sm text-gray-600">Width</label>
-                <input
-                  type="number"
-                  value={Math.round(selectedElement.width)}
-                  onChange={(e) => updateProperty('width', parseInt(e.target.value) || 1)}
-                  className="w-full px-2 py-1 border rounded text-sm"
-                />
-              </div>
-              
-              <div>
-                <label className="text-sm text-gray-600">Height</label>
-                <input
-                  type="number"
-                  value={Math.round(selectedElement.height)}
-                  onChange={(e) => updateProperty('height', parseInt(e.target.value) || 1)}
-                  className="w-full px-2 py-1 border rounded text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-sm text-gray-600">Rotation</label>
-                <input
-                  type="number"
-                  value={selectedElement.rotation || 0}
-                  onChange={(e) => updateProperty('rotation', parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-1 border rounded text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm text-gray-600">Opacity %</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={Math.round((selectedElement.opacity || 1) * 100)}
-                  onChange={(e) => updateProperty('opacity', (parseInt(e.target.value) || 100) / 100)}
-                  className="w-full px-2 py-1 border rounded text-sm"
-                />
-              </div>
-            </div>
-            
-            <div>
-              <label className="text-sm text-gray-600">Fill Color</label>
-              <input
-                type="color"
-                value={selectedElement.fill}
-                onChange={(e) => updateProperty('fill', e.target.value)}
-                className="w-full h-10 border rounded cursor-pointer"
-              />
-            </div>
-
-            {(selectedElement.type === 'rectangle' || selectedElement.type === 'image') && (
-              <div>
-                <label className="text-sm text-gray-600">Border Radius</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={selectedElement.borderRadius || 0}
-                  onChange={(e) => updateProperty('borderRadius', parseInt(e.target.value) || 0)}
-                  className="w-full px-2 py-1 border rounded text-sm"
-                />
-              </div>
-            )}
-
-            {selectedElement.type !== 'text' && selectedElement.type !== 'image' && (
+            {selectedElement && (
               <>
                 <div>
-                  <label className="text-sm text-gray-600">Stroke Color</label>
+                  <label className="text-sm text-gray-600">Layer Name</label>
+                  <input
+                    type="text"
+                    value={selectedElement.layerName || ''}
+                    onChange={(e) => updateProperty('layerName', e.target.value)}
+                    className="w-full px-2 py-1 border rounded"
+                  />
+                    </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-sm text-gray-600">X</label>
+                    <input
+                      type="number"
+                      value={Math.round(selectedElement.x)}
+                      onChange={(e) => updateProperty('x', parseInt(e.target.value) || 0)}
+                      className="w-full px-2 py-1 border rounded text-sm"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm text-gray-600">Y</label>
+                    <input
+                      type="number"
+                      value={Math.round(selectedElement.y)}
+                      onChange={(e) => updateProperty('y', parseInt(e.target.value) || 0)}
+                      className="w-full px-2 py-1 border rounded text-sm"
+                    />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-sm text-gray-600">Width</label>
+                    <input
+                      type="number"
+                      value={Math.round(selectedElement.width)}
+                      onChange={(e) => updateProperty('width', parseInt(e.target.value) || 1)}
+                      className="w-full px-2 py-1 border rounded text-sm"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm text-gray-600">Height</label>
+                    <input
+                      type="number"
+                      value={Math.round(selectedElement.height)}
+                      onChange={(e) => updateProperty('height', parseInt(e.target.value) || 1)}
+                      className="w-full px-2 py-1 border rounded text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-sm text-gray-600">Rotation</label>
+                    <input
+                      type="number"
+                      value={selectedElement.rotation || 0}
+                      onChange={(e) => updateProperty('rotation', parseInt(e.target.value) || 0)}
+                      className="w-full px-2 py-1 border rounded text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm text-gray-600">Opacity %</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={Math.round((selectedElement.opacity || 1) * 100)}
+                      onChange={(e) => updateProperty('opacity', (parseInt(e.target.value) || 100) / 100)}
+                      className="w-full px-2 py-1 border rounded text-sm"
+                    />
+                  </div>
+                </div>
+            
+                <div>
+                  <label className="text-sm text-gray-600">Fill Color</label>
                   <input
                     type="color"
-                    value={selectedElement.stroke || '#000000'}
-                    onChange={(e) => updateProperty('stroke', e.target.value)}
+                    value={selectedElement.fill}
+                    onChange={(e) => updateProperty('fill', e.target.value)}
                     className="w-full h-10 border rounded cursor-pointer"
                   />
                 </div>
+
+                {(selectedElement.type === 'rectangle' || selectedElement.type === 'image') && (
+                  <div>
+                    <label className="text-sm text-gray-600">Border Radius</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={selectedElement.borderRadius || 0}
+                      onChange={(e) => updateProperty('borderRadius', parseInt(e.target.value) || 0)}
+                      className="w-full px-2 py-1 border rounded text-sm"
+                    />
+                  </div>
+                )}
+
+                {selectedElement.type !== 'text' && selectedElement.type !== 'image' && (
+                  <>
+                    <div>
+                      <label className="text-sm text-gray-600">Stroke Color</label>
+                      <input
+                        type="color"
+                        value={selectedElement.stroke || '#000000'}
+                        onChange={(e) => updateProperty('stroke', e.target.value)}
+                        className="w-full h-10 border rounded cursor-pointer"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="text-sm text-gray-600">Stroke Width</label>
+                      <input
+                        type="number"
+                        value={selectedElement.strokeWidth || 0}
+                        onChange={(e) => updateProperty('strokeWidth', parseInt(e.target.value) || 0)}
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                    </div>
+                  </>
+                )}
                 
-                <div>
-                  <label className="text-sm text-gray-600">Stroke Width</label>
-                  <input
-                    type="number"
-                    value={selectedElement.strokeWidth || 0}
-                    onChange={(e) => updateProperty('strokeWidth', parseInt(e.target.value) || 0)}
-                    className="w-full px-2 py-1 border rounded"
-                  />
-                </div>
+                {selectedElement.type === 'text' && (
+                  <>
+                    <div>
+                      <label className="text-sm text-gray-600">Text</label>
+                      <textarea
+                        value={selectedElement.text || ''}
+                        onChange={(e) => updateProperty('text', e.target.value)}
+                        className="w-full px-2 py-1 border rounded"
+                        rows={3}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="text-sm text-gray-600">Font Size</label>
+                      <input
+                        type="number"
+                        value={selectedElement.fontSize || 16}
+                        onChange={(e) => updateProperty('fontSize', parseInt(e.target.value) || 12)}
+                        className="w-full px-2 py-1 border rounded"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-600">Font Family</label>
+                      <select
+                        value={selectedElement.fontFamily || 'Arial, sans-serif'}
+                        onChange={(e) => updateProperty('fontFamily', e.target.value)}
+                        className="w-full px-2 py-1 border rounded"
+                      >
+                        <option value="Arial, sans-serif">Arial</option>
+                        <option value="'Times New Roman', serif">Times New Roman</option>
+                        <option value="'Courier New', monospace">Courier New</option>
+                        <option value="Georgia, serif">Georgia</option>
+                        <option value="Verdana, sans-serif">Verdana</option>
+                        <option value="'Comic Sans MS', cursive">Comic Sans MS</option>
+                      </select>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => updateProperty('fontWeight', selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
+                        className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.fontWeight === 'bold' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                      >
+                        <strong>B</strong> Bold
+                      </button>
+                      <button
+                        onClick={() => updateProperty('fontStyle', selectedElement.fontStyle === 'italic' ? 'normal' : 'italic')}
+                        className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.fontStyle === 'italic' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                      >
+                        <em>I</em> Italic
+                      </button>
+                    </div>
+
+                    <div>
+                      <button
+                        onClick={() => updateProperty('textDecoration', selectedElement.textDecoration === 'underline' ? 'none' : 'underline')}
+                        className={`w-full px-3 py-2 rounded text-sm ${selectedElement.textDecoration === 'underline' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                      >
+                        <u>U</u> Underline
+                      </button>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-600">Text Align</label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => updateProperty('textAlign', 'left')}
+                          className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'left' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                        >
+                          Left
+                        </button>
+                        <button
+                          onClick={() => updateProperty('textAlign', 'center')}
+                          className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'center' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                        >
+                          Center
+                        </button>
+                        <button
+                          onClick={() => updateProperty('textAlign', 'right')}
+                          className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'right' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+                        >
+                          Right
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
-            
-            {selectedElement.type === 'text' && (
-              <>
-                <div>
-                  <label className="text-sm text-gray-600">Text</label>
-                  <textarea
-                    value={selectedElement.text || ''}
-                    onChange={(e) => updateProperty('text', e.target.value)}
-                    className="w-full px-2 py-1 border rounded"
-                    rows={3}
-                  />
-                </div>
-                
-                <div>
-                  <label className="text-sm text-gray-600">Font Size</label>
-                  <input
-                    type="number"
-                    value={selectedElement.fontSize || 16}
-                    onChange={(e) => updateProperty('fontSize', parseInt(e.target.value) || 12)}
-                    className="w-full px-2 py-1 border rounded"
-                  />
-                </div>
 
-                <div>
-                  <label className="text-sm text-gray-600">Font Family</label>
-                  <select
-                    value={selectedElement.fontFamily || 'Arial, sans-serif'}
-                    onChange={(e) => updateProperty('fontFamily', e.target.value)}
-                    className="w-full px-2 py-1 border rounded"
-                  >
-                    <option value="Arial, sans-serif">Arial</option>
-                    <option value="'Times New Roman', serif">Times New Roman</option>
-                    <option value="'Courier New', monospace">Courier New</option>
-                    <option value="Georgia, serif">Georgia</option>
-                    <option value="Verdana, sans-serif">Verdana</option>
-                    <option value="'Comic Sans MS', cursive">Comic Sans MS</option>
-                  </select>
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => updateProperty('fontWeight', selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
-                    className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.fontWeight === 'bold' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                  >
-                    <strong>B</strong> Bold
-                  </button>
-                  <button
-                    onClick={() => updateProperty('fontStyle', selectedElement.fontStyle === 'italic' ? 'normal' : 'italic')}
-                    className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.fontStyle === 'italic' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                  >
-                    <em>I</em> Italic
-                  </button>
-                </div>
-
-                <div>
-                  <button
-                    onClick={() => updateProperty('textDecoration', selectedElement.textDecoration === 'underline' ? 'none' : 'underline')}
-                    className={`w-full px-3 py-2 rounded text-sm ${selectedElement.textDecoration === 'underline' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                  >
-                    <u>U</u> Underline
-                  </button>
-                </div>
-
-                <div>
-                  <label className="text-sm text-gray-600">Text Align</label>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => updateProperty('textAlign', 'left')}
-                      className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'left' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                    >
-                      Left
-                    </button>
-                    <button
-                      onClick={() => updateProperty('textAlign', 'center')}
-                      className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'center' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                    >
-                      Center
-                    </button>
-                    <button
-                      onClick={() => updateProperty('textAlign', 'right')}
-                      className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'right' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                    >
-                      Right
-                    </button>
-                  </div>
-                </div>
-              </>
+            {/* Multi-select properties */}
+            {hasMultipleSelected && (
+              <div className={`p-3 ${darkMode ? 'bg-gray-700' : 'bg-blue-50'} rounded text-sm`}>
+                <p className={darkMode ? 'text-gray-300' : 'text-blue-700'}>
+                  <strong>{selectedIds.length}</strong> elements selected
+                </p>
+                <p className={`text-xs mt-1 ${darkMode ? 'text-gray-400' : 'text-blue-600'}`}>
+                  You can move, resize, align, or apply effects to all selected elements
+                </p>
+              </div>
             )}
 
             {/* Effects Section */}
-            <div className="pt-4 border-t">
-              <h4 className="text-sm font-semibold mb-2">Effects</h4>
-              
-              <div className="space-y-2">
-                {selectedElement.shadow ? (
-                  <button onClick={removeShadow} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
-                    Remove Shadow
-                  </button>
-                ) : (
-                  <button onClick={addShadow} className="w-full px-3 py-2 bg-purple-100 hover:bg-purple-200 rounded text-sm">
-                    Add Shadow
+            {selectedElement && (
+              <div className="pt-4 border-t">
+                <h4 className="text-sm font-semibold mb-2">Effects</h4>
+                
+                <div className="space-y-2">
+                  {selectedElement.shadow ? (
+                    <button onClick={removeShadow} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
+                      Remove Shadow
+                    </button>
+                  ) : (
+                    <button onClick={addShadow} className="w-full px-3 py-2 bg-purple-100 hover:bg-purple-200 rounded text-sm">
+                      Add Shadow
+                    </button>
+                  )}
+                  
+                  {selectedElement.gradient ? (
+                    <button onClick={removeGradient} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
+                      Remove Gradient
+                    </button>
+                  ) : (
+                    <button onClick={addGradient} className="w-full px-3 py-2 bg-purple-100 hover:bg-purple-200 rounded text-sm">
+                      Add Gradient
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Layer Controls */}
+            {selectedElement && (
+              <div className="pt-4 border-t space-y-2">
+                <button onClick={bringToFront} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
+                  Bring to Front (])
+                </button>
+                <button onClick={sendToBack} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
+                  Send to Back ([)
+                </button>
+                <button onClick={toggleLock} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
+                  {selectedElement.locked ? 'Unlock (Cmd+L)' : 'Lock (Cmd+L)'}
+                </button>
+                <button onClick={toggleVisibility} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
+                  {selectedElement.visible === false ? 'Show' : 'Hide'}
+                </button>
+                {selectedIds.length >= 2 && (
+                  <button onClick={createGroup} className="w-full px-3 py-2 bg-blue-100 hover:bg-blue-200 rounded text-sm">
+                    Group Selection (Cmd+G)
                   </button>
                 )}
-                
-                {selectedElement.gradient ? (
-                  <button onClick={removeGradient} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
-                    Remove Gradient
-                  </button>
-                ) : (
-                  <button onClick={addGradient} className="w-full px-3 py-2 bg-purple-100 hover:bg-purple-200 rounded text-sm">
-                    Add Gradient
+                {selectedElement.groupId && (
+                  <button onClick={ungroupSelected} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
+                    Ungroup
                   </button>
                 )}
               </div>
-            </div>
-
-            {/* Layer Controls */}
-            <div className="pt-4 border-t space-y-2">
-              <button onClick={bringToFront} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
-                Bring to Front (])
-              </button>
-              <button onClick={sendToBack} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
-                Send to Back ([)
-              </button>
-              <button onClick={toggleLock} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
-                {selectedElement.locked ? 'Unlock (Cmd+L)' : 'Lock (Cmd+L)'}
-              </button>
-              <button onClick={toggleVisibility} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
-                {selectedElement.visible === false ? 'Show' : 'Hide'}
-              </button>
-              {selectedIds.length >= 2 && (
-                <button onClick={createGroup} className="w-full px-3 py-2 bg-blue-100 hover:bg-blue-200 rounded text-sm">
-                  Group Selection (Cmd+G)
-                </button>
-              )}
-              {selectedElement.groupId && (
-                <button onClick={ungroupSelected} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
-                  Ungroup
-                </button>
-              )}
-            </div>
+            )}
           </div>
         </div>
       )}
