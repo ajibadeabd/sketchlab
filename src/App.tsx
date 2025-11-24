@@ -1,133 +1,20 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { 
-  Square, Circle, Type, MousePointer, Trash2, Copy, 
-  Download, Layers, FolderPlus, Undo2, Redo2,
-  ZoomIn, ZoomOut, Minus, Lock, Unlock, Upload,
-  AlignLeft, AlignCenter, AlignRight, AlignVerticalJustifyCenter,
-  AlignHorizontalJustifyCenter, Pen, Save, Moon, Sun, Box, Package,
-  Palette
-} from 'lucide-react';
-
-type ToolType = 'select' | 'rectangle' | 'circle' | 'text' | 'line' | 'pen' | 'frame';
-
-interface Point {
-  x: number;
-  y: number;
-}
-
-interface Element {
-  id: number;
-  type: 'rectangle' | 'circle' | 'text' | 'line' | 'path' | 'image' | 'frame';
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  fill: string;
-  stroke?: string;
-  strokeWidth?: number;
-  text?: string;
-  fontSize?: number;
-  fontWeight?: 'normal' | 'bold';
-  fontStyle?: 'normal' | 'italic';
-  textDecoration?: 'none' | 'underline';
-  textAlign?: 'left' | 'center' | 'right';
-  fontFamily?: string;
-  rotation?: number;
-  opacity?: number;
-  layerName?: string;
-  groupId?: number | null;
-  zIndex: number;
-  locked?: boolean;
-  visible?: boolean;
-  path?: string;
-  borderRadius?: number;
-  imageUrl?: string;
-  isFrame?: boolean;
-  frameColor?: string;
-  componentId?: number | null;
-  isComponent?: boolean;
-  componentProps?: Record<string, any>;
-  componentVariant?: string;
-  blur?: number;
-  shadow?: {
-    offsetX: number;
-    offsetY: number;
-    blur: number;
-    color: string;
-  };
-  gradient?: {
-    type: 'linear' | 'radial';
-    stops: Array<{ offset: number; color: string }>;
-    angle?: number;
-  };
-  autoLayout?: {
-    direction: 'horizontal' | 'vertical';
-    spacing: number;
-    padding: number;
-    alignment: 'start' | 'center' | 'end' | 'space-between';
-    wrap: boolean;
-  };
-  constraints?: {
-    horizontal: 'left' | 'right' | 'center' | 'left-right' | 'scale';
-    vertical: 'top' | 'bottom' | 'center' | 'top-bottom' | 'scale';
-  };
-  parentFrameId?: number | null;
-  textStyleId?: string | null;
-  colorStyleId?: string | null;
-}
-
-interface Component {
-  id: number;
-  name: string;
-  masterElement: Element;
-  instances: number[];
-  variants?: ComponentVariant[];
-}
-
-interface ComponentVariant {
-  id: string;
-  name: string;
-  properties: Record<string, any>;
-}
-
-interface TextStyle {
-  id: string;
-  name: string;
-  fontFamily: string;
-  fontSize: number;
-  fontWeight: 'normal' | 'bold';
-  fontStyle: 'normal' | 'italic';
-  lineHeight?: number;
-  letterSpacing?: number;
-}
-
-interface ColorStyle {
-  id: string;
-  name: string;
-  color: string;
-  description?: string;
-}
-
-interface Group {
-  id: number;
-  name: string;
-  elementIds: number[];
-}
-
-interface HistoryState {
-  elements: Element[];
-  groups: Group[];
-}
+import React, { useState, useRef, useCallback } from 'react';
+import { Toolbar, LayersPanel, StylesPanel, TopBar, PropertiesPanel } from './components';
+import { useHistory, useSelection, useZoomPan, useKeyboardShortcuts } from './hooks';
+import { exportToJSON, exportToSVG, exportToPNG, snapToGridValue, getGradientId, generatePolygonPath, generateStarPath, generateArrowPath } from './utils/helpers';
+import type {
+  ToolType, Element, Group, Component, TextStyle, ColorStyle,
+  Point, SmartGuide, SelectionBox as SelectionBoxType, DrawPreview, ResizeState, ResizeStart
+} from './types';
 
 export default function DesignTool() {
   const [tool, setTool] = useState<ToolType>('select');
   const [elements, setElements] = useState<Element[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [dragging, setDragging] = useState<number | null>(null);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [resizing, setResizing] = useState<{ id: number; handle: string } | null>(null);
-  const [resizeStart, setResizeStart] = useState<{ x: number; y: number; width: number; height: number; elemX: number; elemY: number } | null>(null);
+  const [resizing, setResizing] = useState<ResizeState | null>(null);
+  const [resizeStart, setResizeStart] = useState<ResizeStart | null>(null);
   const [shiftKey, setShiftKey] = useState(false);
   const [altKey, setAltKey] = useState(false);
   const [snapToGrid, setSnapToGrid] = useState(true);
@@ -135,8 +22,8 @@ export default function DesignTool() {
   const [editingTextId, setEditingTextId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
   const [showSmartGuides, setShowSmartGuides] = useState(true);
-  const [smartGuides, setSmartGuides] = useState<Array<{ type: 'vertical' | 'horizontal'; position: number }>>([]);
-  const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; endX: number; endY: number } | null>(null);
+  const [smartGuides, setSmartGuides] = useState<SmartGuide[]>([]);
+  const [selectionBox, setSelectionBox] = useState<SelectionBoxType | null>(null);
   const [isSelectingBox, setIsSelectingBox] = useState(false);
   const [clipboard, setClipboard] = useState<Element[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -144,75 +31,28 @@ export default function DesignTool() {
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
-  const [drawPreview, setDrawPreview] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [drawPreview, setDrawPreview] = useState<DrawPreview | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
-  // const [booleanMode, setBooleanMode] = useState<'union' | 'subtract' | 'intersect' | null>(null);
   const [textStyles, setTextStyles] = useState<TextStyle[]>([]);
   const [colorStyles, setColorStyles] = useState<ColorStyle[]>([]);
   const [showStylesPanel, setShowStylesPanel] = useState(false);
-
-  const zoomIn = () => {
-    setZoom(Math.min(5, zoom * 1.2));
-  };
-
-  const zoomOut = () => {
-    setZoom(Math.max(0.1, zoom / 1.2));
-  };
-
-  const fitToScreen = () => {
-    if (!canvasContainerRef.current || elements.length === 0) {
-      setZoom(1);
-      setPan({ x: 0, y: 0 });
-      return;
-    }
-
-    const containerRect = canvasContainerRef.current.getBoundingClientRect();
-    const containerWidth = containerRect.width;
-    const containerHeight = containerRect.height;
-
-    // Calculate bounds of all elements
-    const minX = Math.min(...elements.map(el => el.x));
-    const minY = Math.min(...elements.map(el => el.y));
-    const maxX = Math.max(...elements.map(el => el.x + el.width));
-    const maxY = Math.max(...elements.map(el => el.y + el.height));
-
-    const contentWidth = maxX - minX;
-    const contentHeight = maxY - minY;
-
-    // Calculate zoom to fit with padding
-    const padding = 50;
-    const zoomX = (containerWidth - padding * 2) / contentWidth;
-    const zoomY = (containerHeight - padding * 2) / contentHeight;
-    const newZoom = Math.min(zoomX, zoomY, 1); // Don't zoom in more than 100%
-
-    // Calculate pan to center content
-    const centerX = (containerWidth - contentWidth * newZoom) / 2 - minX * newZoom;
-    const centerY = (containerHeight - contentHeight * newZoom) / 2 - minY * newZoom;
-
-    setZoom(newZoom);
-    setPan({ x: centerX, y: centerY });
-  };
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const [history, setHistory] = useState<HistoryState[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
   const [showLayers, setShowLayers] = useState(true);
   const [penPoints, setPenPoints] = useState<Point[]>([]);
   const [isDrawingPath, setIsDrawingPath] = useState(false);
-  
+
   const canvasRef = useRef<SVGSVGElement>(null);
 
+  const { selectedIds, selectElement, selectMultiple, deselectAll, selectAll, setSelectedIds } = useSelection();
+  const { zoom, pan, isPanning, setPan, setIsPanning, zoomIn, zoomOut, fitToScreen } = useZoomPan();
+  const { historyIndex, saveHistory: saveToHistory, undo: undoHistory, redo: redoHistory, canUndo, canRedo, setHistoryIndex } = useHistory(elements, groups);
+
   const saveHistory = useCallback(() => {
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push({ elements: [...elements], groups: [...groups] });
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
-  }, [elements, groups, history, historyIndex]);
+    saveToHistory(elements, groups);
+  }, [elements, groups, saveToHistory]);
 
   const undo = () => {
-    if (historyIndex > 0) {
-      const prevState = history[historyIndex - 1];
+    const prevState = undoHistory();
+    if (prevState) {
       setElements(prevState.elements);
       setGroups(prevState.groups);
       setHistoryIndex(historyIndex - 1);
@@ -220,15 +60,15 @@ export default function DesignTool() {
   };
 
   const redo = () => {
-    if (historyIndex < history.length - 1) {
-      const nextState = history[historyIndex + 1];
+    const nextState = redoHistory();
+    if (nextState) {
       setElements(nextState.elements);
       setGroups(nextState.groups);
       setHistoryIndex(historyIndex + 1);
     }
   };
 
-  const addElement = (type: 'rectangle' | 'circle' | 'text' | 'line' | 'frame', x: number, y: number, width: number, height: number) => {
+  const addElement = (type: 'rectangle' | 'circle' | 'text' | 'line' | 'frame' | 'arrow' | 'polygon' | 'star', x: number, y: number, width: number, height: number) => {
     const maxZ = elements.length > 0 ? Math.max(...elements.map(e => e.zIndex)) : 0;
     const newElement: Element = {
       id: Date.now(),
@@ -237,9 +77,9 @@ export default function DesignTool() {
       y,
       width,
       height,
-      fill: type === 'text' ? '#000000' : type === 'line' ? 'transparent' : type === 'frame' ? 'rgba(255, 255, 255, 0.01)' : '#3b82f6',
-      stroke: type === 'line' ? '#000000' : type === 'frame' ? '#8b5cf6' : undefined,
-      strokeWidth: type === 'line' ? 2 : type === 'frame' ? 2 : undefined,
+      fill: type === 'text' ? '#000000' : type === 'line' ? 'transparent' : type === 'frame' ? 'rgba(255, 255, 255, 0.01)' : type === 'arrow' ? 'transparent' : '#3b82f6',
+      stroke: type === 'line' ? '#000000' : type === 'frame' ? '#8b5cf6' : type === 'arrow' ? '#000000' : undefined,
+      strokeWidth: type === 'line' ? 2 : type === 'frame' ? 2 : type === 'arrow' ? 2 : undefined,
       text: type === 'text' ? 'Double-click to edit' : undefined,
       fontSize: 16,
       fontWeight: 'normal',
@@ -257,7 +97,9 @@ export default function DesignTool() {
       borderRadius: 0,
       isFrame: type === 'frame',
       frameColor: type === 'frame' ? '#8b5cf6' : undefined,
-      blur: 0
+      blur: 0,
+      points: type === 'polygon' ? 6 : type === 'star' ? 5 : undefined,
+      arrowHeadSize: type === 'arrow' ? 10 : undefined
     };
     setElements([...elements, newElement]);
     setSelectedIds([newElement.id]);
@@ -299,7 +141,7 @@ export default function DesignTool() {
       img.src = imageUrl;
     };
     reader.readAsDataURL(file);
-    
+
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -308,7 +150,7 @@ export default function DesignTool() {
   const handleCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
-    
+
     const x = (e.clientX - rect.left - pan.x) / zoom;
     const y = (e.clientY - rect.top - pan.y) / zoom;
 
@@ -322,6 +164,25 @@ export default function DesignTool() {
       return;
     }
 
+    if (tool === 'eyedropper') {
+      const clicked = [...elements]
+        .filter(el => el.visible !== false)
+        .sort((a, b) => b.zIndex - a.zIndex)
+        .find(el =>
+          x >= el.x && x <= el.x + el.width &&
+          y >= el.y && y <= el.y + el.height
+        );
+
+      if (clicked && selectedIds.length > 0) {
+        setElements(elements.map(el =>
+          selectedIds.includes(el.id) ? { ...el, fill: clicked.fill } : el
+        ));
+        saveHistory();
+      }
+      setTool('select');
+      return;
+    }
+
     if (tool === 'text') {
       addElement('text', x, y, 200, 50);
       setTool('select');
@@ -329,12 +190,12 @@ export default function DesignTool() {
       const clicked = [...elements]
         .filter(el => el.visible !== false)
         .sort((a, b) => b.zIndex - a.zIndex)
-        .find(el => 
+        .find(el =>
           !el.locked &&
           x >= el.x && x <= el.x + el.width &&
           y >= el.y && y <= el.y + el.height
         );
-      
+
       setSelectedIds(clicked ? [clicked.id] : []);
     }
   };
@@ -342,12 +203,16 @@ export default function DesignTool() {
   const handleCanvasMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
-    
+
     const x = (e.clientX - rect.left - pan.x) / zoom;
     const y = (e.clientY - rect.top - pan.y) / zoom;
 
-    // Start drawing shapes
-    if (tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'frame') {
+    if (tool === 'hand') {
+      setIsPanning(true);
+      return;
+    }
+
+    if (tool === 'rectangle' || tool === 'circle' || tool === 'line' || tool === 'frame' || tool === 'arrow' || tool === 'polygon' || tool === 'star') {
       setIsDrawing(true);
       setDrawStart({ x, y });
       setDrawPreview({ x, y, width: 0, height: 0 });
@@ -356,18 +221,16 @@ export default function DesignTool() {
 
     if (tool !== 'select') return;
 
-    // Check if clicking on an element
     const clicked = [...elements]
       .filter(el => el.visible !== false)
       .sort((a, b) => b.zIndex - a.zIndex)
-      .find(el => 
+      .find(el =>
         !el.locked &&
         x >= el.x && x <= el.x + el.width &&
         y >= el.y && y <= el.y + el.height
       );
 
     if (!clicked) {
-      // Start selection box
       setIsSelectingBox(true);
       setSelectionBox({ startX: x, startY: y, endX: x, endY: y });
     }
@@ -387,7 +250,7 @@ export default function DesignTool() {
     const maxX = Math.max(...xs);
     const maxY = Math.max(...ys);
 
-    const pathData = penPoints.map((p, i) => 
+    const pathData = penPoints.map((p, i) =>
       i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
     ).join(' ');
 
@@ -423,24 +286,19 @@ export default function DesignTool() {
   const handleMouseDown = (e: React.MouseEvent, element: Element) => {
     if (tool !== 'select' || element.locked) return;
     e.stopPropagation();
-    
+
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
-    
+
     setDragging(element.id);
     setOffset({
       x: (e.clientX - rect.left - pan.x) / zoom - element.x,
       y: (e.clientY - rect.top - pan.y) / zoom - element.y
     });
-    
+
     if (!selectedIds.includes(element.id)) {
       setSelectedIds(e.shiftKey ? [...selectedIds, element.id] : [element.id]);
     }
-  };
-
-  const snapToGridValue = (value: number) => {
-    if (!snapToGrid) return value;
-    return Math.round(value / gridSize) * gridSize;
   };
 
   const handleTextDoubleClick = (e: React.MouseEvent, element: Element) => {
@@ -462,62 +320,15 @@ export default function DesignTool() {
     }
   };
 
-  const distributeHorizontally = () => {
-    if (selectedIds.length < 3) return;
-    
-    const selected = elements.filter(el => selectedIds.includes(el.id)).sort((a, b) => a.x - b.x);
-    const first = selected[0];
-    const last = selected[selected.length - 1];
-    const totalSpace = (last.x + last.width) - first.x;
-    const totalWidth = selected.reduce((sum, el) => sum + el.width, 0);
-    const gap = (totalSpace - totalWidth) / (selected.length - 1);
-    
-    let currentX = first.x + first.width + gap;
-    setElements(elements.map(el => {
-      const index = selected.findIndex(s => s.id === el.id);
-      if (index > 0 && index < selected.length - 1) {
-        const newEl = { ...el, x: currentX };
-        currentX += el.width + gap;
-        return newEl;
-      }
-      return el;
-    }));
-    saveHistory();
-  };
-
-  const distributeVertically = () => {
-    if (selectedIds.length < 3) return;
-    
-    const selected = elements.filter(el => selectedIds.includes(el.id)).sort((a, b) => a.y - b.y);
-    const first = selected[0];
-    const last = selected[selected.length - 1];
-    const totalSpace = (last.y + last.height) - first.y;
-    const totalHeight = selected.reduce((sum, el) => sum + el.height, 0);
-    const gap = (totalSpace - totalHeight) / (selected.length - 1);
-    
-    let currentY = first.y + first.height + gap;
-    setElements(elements.map(el => {
-      const index = selected.findIndex(s => s.id === el.id);
-      if (index > 0 && index < selected.length - 1) {
-        const newEl = { ...el, y: currentY };
-        currentY += el.height + gap;
-        return newEl;
-      }
-      return el;
-    }));
-    saveHistory();
-  };
-
-  const calculateSmartGuides = (movingElement: Element, newX: number, newY: number) => {
+  const calculateSmartGuides = (movingElement: Element, newX: number, newY: number): SmartGuide[] => {
     if (!showSmartGuides) return [];
-    
-    const guides: Array<{ type: 'vertical' | 'horizontal'; position: number }> = [];
+
+    const guides: SmartGuide[] = [];
     const threshold = 5;
-    
+
     const otherElements = elements.filter(el => el.id !== movingElement.id && el.visible !== false);
-    
+
     for (const el of otherElements) {
-      // Vertical alignment (X positions)
       if (Math.abs(newX - el.x) < threshold) {
         guides.push({ type: 'vertical', position: el.x });
       }
@@ -527,8 +338,7 @@ export default function DesignTool() {
       if (Math.abs(newX + movingElement.width / 2 - (el.x + el.width / 2)) < threshold) {
         guides.push({ type: 'vertical', position: el.x + el.width / 2 });
       }
-      
-      // Horizontal alignment (Y positions)
+
       if (Math.abs(newY - el.y) < threshold) {
         guides.push({ type: 'horizontal', position: el.y });
       }
@@ -539,7 +349,7 @@ export default function DesignTool() {
         guides.push({ type: 'horizontal', position: el.y + el.height / 2 });
       }
     }
-    
+
     return guides;
   };
 
@@ -581,21 +391,19 @@ export default function DesignTool() {
     const mouseX = (e.clientX - rect.left - pan.x) / zoom;
     const mouseY = (e.clientY - rect.top - pan.y) / zoom;
 
-    // Handle drawing shapes
     if (isDrawing && drawStart) {
       const width = mouseX - drawStart.x;
       const height = mouseY - drawStart.y;
-      
-      // Handle shift key for aspect ratio
+
       let finalWidth = width;
       let finalHeight = height;
-      
-      if (shiftKey && (tool === 'rectangle' || tool === 'circle' || tool === 'frame')) {
+
+      if (shiftKey && (tool === 'rectangle' || tool === 'circle' || tool === 'frame' || tool === 'polygon' || tool === 'star')) {
         const size = Math.max(Math.abs(width), Math.abs(height));
         finalWidth = width >= 0 ? size : -size;
         finalHeight = height >= 0 ? size : -size;
       }
-      
+
       setDrawPreview({
         x: finalWidth >= 0 ? drawStart.x : drawStart.x + finalWidth,
         y: finalHeight >= 0 ? drawStart.y : drawStart.y + finalHeight,
@@ -605,13 +413,11 @@ export default function DesignTool() {
       return;
     }
 
-    // Handle selection box
     if (isSelectingBox && selectionBox) {
       setSelectionBox({ ...selectionBox, endX: mouseX, endY: mouseY });
       return;
     }
 
-    // Handle resizing
     if (resizing && resizeStart) {
       const element = elements.find(el => el.id === resizing.id);
       if (!element) return;
@@ -627,11 +433,10 @@ export default function DesignTool() {
       const aspectRatio = resizeStart.width / resizeStart.height;
       const isCornerHandle = ['nw', 'ne', 'sw', 'se'].includes(resizing.handle);
 
-      // Aspect ratio lock with Shift key
       if (shiftKey && isCornerHandle) {
         const absWidth = Math.abs(resizeStart.width + (resizing.handle.includes('e') ? deltaX : -deltaX));
         const absHeight = Math.abs(resizeStart.height + (resizing.handle.includes('s') ? deltaY : -deltaY));
-        
+
         if (absWidth / aspectRatio > absHeight) {
           deltaY = (absWidth / aspectRatio - resizeStart.height) * (resizing.handle.includes('n') ? -1 : 1);
         } else {
@@ -639,9 +444,7 @@ export default function DesignTool() {
         }
       }
 
-      // Calculate new dimensions based on handle
       if (altKey) {
-        // Resize from center
         const centerX = resizeStart.elemX + resizeStart.width / 2;
         const centerY = resizeStart.elemY + resizeStart.height / 2;
 
@@ -688,7 +491,6 @@ export default function DesignTool() {
             break;
         }
       } else {
-        // Normal resize
         switch (resizing.handle) {
           case 'nw':
             newX = resizeStart.elemX + deltaX;
@@ -727,7 +529,6 @@ export default function DesignTool() {
         }
       }
 
-      // Prevent negative dimensions
       if (newWidth < 10) {
         newWidth = 10;
         if (resizing.handle.includes('w')) newX = element.x + element.width - 10;
@@ -737,12 +538,11 @@ export default function DesignTool() {
         if (resizing.handle.includes('n')) newY = element.y + element.height - 10;
       }
 
-      // Apply snap to grid
       if (snapToGrid) {
-        newX = snapToGridValue(newX);
-        newY = snapToGridValue(newY);
-        newWidth = snapToGridValue(newWidth);
-        newHeight = snapToGridValue(newHeight);
+        newX = snapToGridValue(newX, snapToGrid, gridSize);
+        newY = snapToGridValue(newY, snapToGrid, gridSize);
+        newWidth = snapToGridValue(newWidth, snapToGrid, gridSize);
+        newHeight = snapToGridValue(newHeight, snapToGrid, gridSize);
       }
 
       setElements(elements.map(el =>
@@ -752,22 +552,19 @@ export default function DesignTool() {
       ));
       return;
     }
-    
-    // Handle dragging
+
     if (!dragging) return;
-    
-    let x = mouseX - offset.x;
-    let y = mouseY - offset.y;
 
     const draggedElement = elements.find(el => el.id === dragging);
     if (!draggedElement) return;
 
-    // Calculate smart guides
+    let x = mouseX - offset.x;
+    let y = mouseY - offset.y;
+
     if (showSmartGuides && !snapToGrid) {
       const guides = calculateSmartGuides(draggedElement, x, y);
       setSmartGuides(guides);
-      
-      // Snap to guides
+
       for (const guide of guides) {
         if (guide.type === 'vertical') {
           if (Math.abs(x - guide.position) < 5) x = guide.position;
@@ -783,16 +580,15 @@ export default function DesignTool() {
       setSmartGuides([]);
     }
 
-    // Apply snap to grid for dragging
     if (snapToGrid) {
-      x = snapToGridValue(x);
-      y = snapToGridValue(y);
+      x = snapToGridValue(x, snapToGrid, gridSize);
+      y = snapToGridValue(y, snapToGrid, gridSize);
     }
-    
+
     const deltaX = x - draggedElement.x;
     const deltaY = y - draggedElement.y;
-    
-    setElements(elements.map(el => 
+
+    setElements(elements.map(el =>
       selectedIds.includes(el.id) && !el.locked
         ? { ...el, x: el.x + deltaX, y: el.y + deltaY }
         : el
@@ -800,11 +596,10 @@ export default function DesignTool() {
   };
 
   const handleMouseUp = () => {
-    // Finish drawing shape
     if (isDrawing && drawStart && drawPreview) {
       const minWidth = 5;
       const minHeight = 5;
-      
+
       if (drawPreview.width >= minWidth && drawPreview.height >= minHeight) {
         if (tool === 'rectangle') {
           addElement('rectangle', drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height);
@@ -814,10 +609,16 @@ export default function DesignTool() {
           addElement('line', drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height);
         } else if (tool === 'frame') {
           addElement('frame', drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height);
+        } else if (tool === 'arrow') {
+          addElement('arrow', drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height);
+        } else if (tool === 'polygon') {
+          addElement('polygon', drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height);
+        } else if (tool === 'star') {
+          addElement('star', drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height);
         }
         setTool('select');
       }
-      
+
       setIsDrawing(false);
       setDrawStart(null);
       setDrawPreview(null);
@@ -825,13 +626,12 @@ export default function DesignTool() {
     }
 
     if (isSelectingBox && selectionBox) {
-      // Select elements within box
       const minX = Math.min(selectionBox.startX, selectionBox.endX);
       const maxX = Math.max(selectionBox.startX, selectionBox.endX);
       const minY = Math.min(selectionBox.startY, selectionBox.endY);
       const maxY = Math.max(selectionBox.startY, selectionBox.endY);
 
-      const selected = elements.filter(el => 
+      const selected = elements.filter(el =>
         !el.locked &&
         el.visible !== false &&
         el.x >= minX && el.x + el.width <= maxX &&
@@ -875,156 +675,209 @@ export default function DesignTool() {
     saveHistory();
   };
 
-  const selectAll = () => {
-    const allIds = elements.filter(el => !el.locked && el.visible !== false).map(el => el.id);
-    setSelectedIds(allIds);
-  };
-
-  const deselectAll = () => {
+  const deleteSelected = () => {
+    setElements(elements.filter(el => !selectedIds.includes(el.id)));
     setSelectedIds([]);
+    saveHistory();
   };
 
-  const createComponent = () => {
-    if (selectedIds.length !== 1) return;
-    
-    const element = elements.find(el => el.id === selectedIds[0]);
-    if (!element) return;
+  const duplicateSelected = () => {
+    if (selectedIds.length === 0) return;
 
-    const newComponent: Component = {
+    const newElements = selectedIds.map(id => {
+      const element = elements.find(el => el.id === id);
+      if (!element) return null;
+
+      return {
+        ...element,
+        id: Date.now() + Math.random(),
+        x: element.x + 20,
+        y: element.y + 20,
+        zIndex: element.zIndex + 1
+      };
+    }).filter((el): el is Element => el !== null);
+
+    setElements([...elements, ...newElements]);
+    setSelectedIds(newElements.map(el => el.id));
+    saveHistory();
+  };
+
+  const updateProperty = <K extends keyof Element>(property: K, value: Element[K]) => {
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, [property]: value } : el
+    ));
+    saveHistory();
+  };
+
+  const toggleLock = () => {
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, locked: !el.locked } : el
+    ));
+    saveHistory();
+  };
+
+  const toggleVisibility = () => {
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, visible: !el.visible } : el
+    ));
+    saveHistory();
+  };
+
+  const alignLeft = () => {
+    if (selectedIds.length === 0) return;
+    const minX = Math.min(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.x));
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, x: minX } : el
+    ));
+    saveHistory();
+  };
+
+  const alignCenter = () => {
+    if (selectedIds.length === 0) return;
+    const selectedElements = elements.filter(el => selectedIds.includes(el.id));
+    const minX = Math.min(...selectedElements.map(el => el.x));
+    const maxX = Math.max(...selectedElements.map(el => el.x + el.width));
+    const centerX = (minX + maxX) / 2;
+
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, x: centerX - el.width / 2 } : el
+    ));
+    saveHistory();
+  };
+
+  const alignRight = () => {
+    if (selectedIds.length === 0) return;
+    const maxX = Math.max(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.x + el.width));
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, x: maxX - el.width } : el
+    ));
+    saveHistory();
+  };
+
+  const alignTop = () => {
+    if (selectedIds.length === 0) return;
+    const minY = Math.min(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y));
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, y: minY } : el
+    ));
+    saveHistory();
+  };
+
+  const alignMiddle = () => {
+    if (selectedIds.length === 0) return;
+    const selectedElements = elements.filter(el => selectedIds.includes(el.id));
+    const minY = Math.min(...selectedElements.map(el => el.y));
+    const maxY = Math.max(...selectedElements.map(el => el.y + el.height));
+    const centerY = (minY + maxY) / 2;
+
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, y: centerY - el.height / 2 } : el
+    ));
+    saveHistory();
+  };
+
+  const alignBottom = () => {
+    if (selectedIds.length === 0) return;
+    const maxY = Math.max(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y + el.height));
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, y: maxY - el.height } : el
+    ));
+    saveHistory();
+  };
+
+  const distributeHorizontally = () => {
+    if (selectedIds.length < 3) return;
+
+    const selected = elements.filter(el => selectedIds.includes(el.id)).sort((a, b) => a.x - b.x);
+    const first = selected[0];
+    const last = selected[selected.length - 1];
+    const totalSpace = (last.x + last.width) - first.x;
+    const totalWidth = selected.reduce((sum, el) => sum + el.width, 0);
+    const gap = (totalSpace - totalWidth) / (selected.length - 1);
+
+    let currentX = first.x + first.width + gap;
+    setElements(elements.map(el => {
+      const index = selected.findIndex(s => s.id === el.id);
+      if (index > 0 && index < selected.length - 1) {
+        const newEl = { ...el, x: currentX };
+        currentX += el.width + gap;
+        return newEl;
+      }
+      return el;
+    }));
+    saveHistory();
+  };
+
+  const distributeVertically = () => {
+    if (selectedIds.length < 3) return;
+
+    const selected = elements.filter(el => selectedIds.includes(el.id)).sort((a, b) => a.y - b.y);
+    const first = selected[0];
+    const last = selected[selected.length - 1];
+    const totalSpace = (last.y + last.height) - first.y;
+    const totalHeight = selected.reduce((sum, el) => sum + el.height, 0);
+    const gap = (totalSpace - totalHeight) / (selected.length - 1);
+
+    let currentY = first.y + first.height + gap;
+    setElements(elements.map(el => {
+      const index = selected.findIndex(s => s.id === el.id);
+      if (index > 0 && index < selected.length - 1) {
+        const newEl = { ...el, y: currentY };
+        currentY += el.height + gap;
+        return newEl;
+      }
+      return el;
+    }));
+    saveHistory();
+  };
+
+  const createGroup = () => {
+    if (selectedIds.length < 2) return;
+
+    const newGroup: Group = {
       id: Date.now(),
-      name: `Component ${components.length + 1}`,
-      masterElement: { ...element },
-      instances: [element.id],
-      variants: [
-        { id: 'default', name: 'Default', properties: {} },
-        { id: 'hover', name: 'Hover', properties: { opacity: 0.8 } },
-        { id: 'pressed', name: 'Pressed', properties: { opacity: 0.6 } }
-      ]
+      name: `Group ${groups.length + 1}`,
+      elementIds: selectedIds
     };
 
-    setComponents([...components, newComponent]);
-    setElements(elements.map(el => 
-      el.id === element.id 
-        ? { ...el, isComponent: true, componentId: newComponent.id, componentVariant: 'default' }
-        : el
+    setGroups([...groups, newGroup]);
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, groupId: newGroup.id } : el
     ));
     saveHistory();
   };
 
-  const createTextStyle = () => {
-    if (selectedIds.length !== 1) return;
-    const element = elements.find(el => el.id === selectedIds[0]);
-    if (!element || element.type !== 'text') return;
+  const ungroupSelected = () => {
+    const groupIds = new Set(
+      elements.filter(el => selectedIds.includes(el.id)).map(el => el.groupId).filter(Boolean)
+    );
 
-    const newStyle: TextStyle = {
-      id: `text-${Date.now()}`,
-      name: `Text Style ${textStyles.length + 1}`,
-      fontFamily: element.fontFamily || 'Arial, sans-serif',
-      fontSize: element.fontSize || 16,
-      fontWeight: element.fontWeight || 'normal',
-      fontStyle: element.fontStyle || 'normal'
-    };
-
-    setTextStyles([...textStyles, newStyle]);
-    setElements(elements.map(el => 
-      el.id === element.id ? { ...el, textStyleId: newStyle.id } : el
+    setGroups(groups.filter(g => !groupIds.has(g.id)));
+    setElements(elements.map(el =>
+      groupIds.has(el.groupId) ? { ...el, groupId: null } : el
     ));
     saveHistory();
   };
 
-  const createColorStyle = () => {
-    if (selectedIds.length !== 1) return;
-    const element = elements.find(el => el.id === selectedIds[0]);
-    if (!element) return;
-
-    const newStyle: ColorStyle = {
-      id: `color-${Date.now()}`,
-      name: `Color ${colorStyles.length + 1}`,
-      color: element.fill
-    };
-
-    setColorStyles([...colorStyles, newStyle]);
-    setElements(elements.map(el => 
-      el.id === element.id ? { ...el, colorStyleId: newStyle.id } : el
+  const bringToFront = () => {
+    const maxZ = Math.max(...elements.map(e => e.zIndex));
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, zIndex: maxZ + 1 } : el
     ));
     saveHistory();
   };
 
-  const applyTextStyle = (styleId: string) => {
-    const style = textStyles.find(s => s.id === styleId);
-    if (!style) return;
-
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) && el.type === 'text'
-        ? { 
-            ...el, 
-            fontFamily: style.fontFamily,
-            fontSize: style.fontSize,
-            fontWeight: style.fontWeight,
-            fontStyle: style.fontStyle,
-            textStyleId: styleId
-          }
-        : el
-    ));
-    saveHistory();
-  };
-
-  const applyColorStyle = (styleId: string) => {
-    const style = colorStyles.find(s => s.id === styleId);
-    if (!style) return;
-
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id)
-        ? { ...el, fill: style.color, colorStyleId: styleId }
-        : el
-    ));
-    saveHistory();
-  };
-
-  const toggleAutoLayout = () => {
-    if (selectedIds.length !== 1) return;
-    
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id)
-        ? { 
-            ...el, 
-            autoLayout: el.autoLayout ? undefined : {
-              direction: 'horizontal',
-              spacing: 10,
-              padding: 10,
-              alignment: 'start',
-              wrap: false
-            }
-          }
-        : el
-    ));
-    saveHistory();
-  };
-
-  const updateAutoLayout = <K extends keyof NonNullable<Element['autoLayout']>>(
-    property: K, 
-    value: NonNullable<Element['autoLayout']>[K]
-  ) => {
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) && el.autoLayout
-        ? { ...el, autoLayout: { ...el.autoLayout, [property]: value } }
-        : el
-    ));
-    saveHistory();
-  };
-
-  const setConstraints = (horizontal: string, vertical: string) => {
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id)
-        ? { ...el, constraints: { horizontal: horizontal as any, vertical: vertical as any } }
-        : el
+  const sendToBack = () => {
+    const minZ = Math.min(...elements.map(e => e.zIndex));
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, zIndex: minZ - 1 } : el
     ));
     saveHistory();
   };
 
   const booleanUnion = () => {
     if (selectedIds.length < 2) return;
-    
+
     const selectedElements = elements.filter(el => selectedIds.includes(el.id));
     const minX = Math.min(...selectedElements.map(el => el.x));
     const minY = Math.min(...selectedElements.map(el => el.y));
@@ -1058,13 +911,12 @@ export default function DesignTool() {
 
   const booleanSubtract = () => {
     if (selectedIds.length !== 2) return;
-    
+
     const base = elements.find(el => el.id === selectedIds[0]);
     const subtract = elements.find(el => el.id === selectedIds[1]);
-    
+
     if (!base || !subtract) return;
 
-    // Simple subtraction - just remove overlapping area
     const remaining: Element = {
       ...base,
       id: Date.now(),
@@ -1076,164 +928,148 @@ export default function DesignTool() {
     saveHistory();
   };
 
-  const deleteSelected = () => {
-    setElements(elements.filter(el => !selectedIds.includes(el.id)));
-    setSelectedIds([]);
-    saveHistory();
-  };
+  const createComponent = () => {
+    if (selectedIds.length !== 1) return;
 
-  const duplicateSelected = () => {
-    if (selectedIds.length === 0) return;
-    
-    const newElements = selectedIds.map(id => {
-      const element = elements.find(el => el.id === id);
-      if (!element) return null;
-      
-      return { 
-        ...element, 
-        id: Date.now() + Math.random(), 
-        x: element.x + 20, 
-        y: element.y + 20,
-        zIndex: element.zIndex + 1
-      };
-    }).filter((el): el is Element => el !== null);
-    
-    setElements([...elements, ...newElements]);
-    setSelectedIds(newElements.map(el => el.id));
-    saveHistory();
-  };
+    const element = elements.find(el => el.id === selectedIds[0]);
+    if (!element) return;
 
-  const updateProperty = <K extends keyof Element>(property: K, value: Element[K]) => {
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, [property]: value } : el
-    ));
-    saveHistory();
-  };
-
-  const toggleLock = () => {
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, locked: !el.locked } : el
-    ));
-    saveHistory();
-  };
-
-  const toggleVisibility = () => {
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, visible: !el.visible } : el
-    ));
-    saveHistory();
-  };
-
-  const alignLeft = () => {
-    if (selectedIds.length === 0) return;
-    const minX = Math.min(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.x));
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, x: minX } : el
-    ));
-    saveHistory();
-  };
-
-  const alignCenter = () => {
-    if (selectedIds.length === 0) return;
-    const selectedElements = elements.filter(el => selectedIds.includes(el.id));
-    const minX = Math.min(...selectedElements.map(el => el.x));
-    const maxX = Math.max(...selectedElements.map(el => el.x + el.width));
-    const centerX = (minX + maxX) / 2;
-    
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, x: centerX - el.width / 2 } : el
-    ));
-    saveHistory();
-  };
-
-  const alignRight = () => {
-    if (selectedIds.length === 0) return;
-    const maxX = Math.max(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.x + el.width));
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, x: maxX - el.width } : el
-    ));
-    saveHistory();
-  };
-
-  const alignTop = () => {
-    if (selectedIds.length === 0) return;
-    const minY = Math.min(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y));
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, y: minY } : el
-    ));
-    saveHistory();
-  };
-
-  const alignMiddle = () => {
-    if (selectedIds.length === 0) return;
-    const selectedElements = elements.filter(el => selectedIds.includes(el.id));
-    const minY = Math.min(...selectedElements.map(el => el.y));
-    const maxY = Math.max(...selectedElements.map(el => el.y + el.height));
-    const centerY = (minY + maxY) / 2;
-    
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, y: centerY - el.height / 2 } : el
-    ));
-    saveHistory();
-  };
-
-  const alignBottom = () => {
-    if (selectedIds.length === 0) return;
-    const maxY = Math.max(...elements.filter(el => selectedIds.includes(el.id)).map(el => el.y + el.height));
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, y: maxY - el.height } : el
-    ));
-    saveHistory();
-  };
-
-  const createGroup = () => {
-    if (selectedIds.length < 2) return;
-    
-    const newGroup: Group = {
+    const newComponent: Component = {
       id: Date.now(),
-      name: `Group ${groups.length + 1}`,
-      elementIds: selectedIds
+      name: `Component ${components.length + 1}`,
+      masterElement: { ...element },
+      instances: [element.id],
+      variants: [
+        { id: 'default', name: 'Default', properties: {} },
+        { id: 'hover', name: 'Hover', properties: { opacity: 0.8 } },
+        { id: 'pressed', name: 'Pressed', properties: { opacity: 0.6 } }
+      ]
     };
-    
-    setGroups([...groups, newGroup]);
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, groupId: newGroup.id } : el
+
+    setComponents([...components, newComponent]);
+    setElements(elements.map(el =>
+      el.id === element.id
+        ? { ...el, isComponent: true, componentId: newComponent.id, componentVariant: 'default' }
+        : el
     ));
     saveHistory();
   };
 
-  const ungroupSelected = () => {
-    const groupIds = new Set(
-      elements.filter(el => selectedIds.includes(el.id)).map(el => el.groupId).filter(Boolean)
-    );
-    
-    setGroups(groups.filter(g => !groupIds.has(g.id)));
-    setElements(elements.map(el => 
-      groupIds.has(el.groupId) ? { ...el, groupId: null } : el
+  const createTextStyle = () => {
+    if (selectedIds.length !== 1) return;
+    const element = elements.find(el => el.id === selectedIds[0]);
+    if (!element || element.type !== 'text') return;
+
+    const newStyle: TextStyle = {
+      id: `text-${Date.now()}`,
+      name: `Text Style ${textStyles.length + 1}`,
+      fontFamily: element.fontFamily || 'Arial, sans-serif',
+      fontSize: element.fontSize || 16,
+      fontWeight: element.fontWeight || 'normal',
+      fontStyle: element.fontStyle || 'normal'
+    };
+
+    setTextStyles([...textStyles, newStyle]);
+    setElements(elements.map(el =>
+      el.id === element.id ? { ...el, textStyleId: newStyle.id } : el
     ));
     saveHistory();
   };
 
-  const bringToFront = () => {
-    const maxZ = Math.max(...elements.map(e => e.zIndex));
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, zIndex: maxZ + 1 } : el
+  const createColorStyle = () => {
+    if (selectedIds.length !== 1) return;
+    const element = elements.find(el => el.id === selectedIds[0]);
+    if (!element) return;
+
+    const newStyle: ColorStyle = {
+      id: `color-${Date.now()}`,
+      name: `Color ${colorStyles.length + 1}`,
+      color: element.fill
+    };
+
+    setColorStyles([...colorStyles, newStyle]);
+    setElements(elements.map(el =>
+      el.id === element.id ? { ...el, colorStyleId: newStyle.id } : el
     ));
     saveHistory();
   };
 
-  const sendToBack = () => {
-    const minZ = Math.min(...elements.map(e => e.zIndex));
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { ...el, zIndex: minZ - 1 } : el
+  const applyTextStyle = (styleId: string) => {
+    const style = textStyles.find(s => s.id === styleId);
+    if (!style) return;
+
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) && el.type === 'text'
+        ? {
+            ...el,
+            fontFamily: style.fontFamily,
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            fontStyle: style.fontStyle,
+            textStyleId: styleId
+          }
+        : el
+    ));
+    saveHistory();
+  };
+
+  const applyColorStyle = (styleId: string) => {
+    const style = colorStyles.find(s => s.id === styleId);
+    if (!style) return;
+
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id)
+        ? { ...el, fill: style.color, colorStyleId: styleId }
+        : el
+    ));
+    saveHistory();
+  };
+
+  const toggleAutoLayout = () => {
+    if (selectedIds.length !== 1) return;
+
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id)
+        ? {
+            ...el,
+            autoLayout: el.autoLayout ? undefined : {
+              direction: 'horizontal',
+              spacing: 10,
+              padding: 10,
+              alignment: 'start',
+              wrap: false
+            }
+          }
+        : el
+    ));
+    saveHistory();
+  };
+
+  const updateAutoLayout = <K extends keyof NonNullable<Element['autoLayout']>>(
+    property: K,
+    value: NonNullable<Element['autoLayout']>[K]
+  ) => {
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) && el.autoLayout
+        ? { ...el, autoLayout: { ...el.autoLayout, [property]: value } }
+        : el
+    ));
+    saveHistory();
+  };
+
+  const setConstraints = (horizontal: string, vertical: string) => {
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id)
+        ? { ...el, constraints: { horizontal: horizontal as any, vertical: vertical as any } }
+        : el
     ));
     saveHistory();
   };
 
   const addShadow = () => {
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { 
-        ...el, 
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? {
+        ...el,
         shadow: el.shadow || { offsetX: 2, offsetY: 2, blur: 4, color: 'rgba(0,0,0,0.3)' }
       } : el
     ));
@@ -1241,16 +1077,16 @@ export default function DesignTool() {
   };
 
   const removeShadow = () => {
-    setElements(elements.map(el => 
+    setElements(elements.map(el =>
       selectedIds.includes(el.id) ? { ...el, shadow: undefined } : el
     ));
     saveHistory();
   };
 
   const addGradient = () => {
-    setElements(elements.map(el => 
-      selectedIds.includes(el.id) ? { 
-        ...el, 
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? {
+        ...el,
         gradient: el.gradient || {
           type: 'linear',
           stops: [
@@ -1265,27 +1101,16 @@ export default function DesignTool() {
   };
 
   const removeGradient = () => {
-    setElements(elements.map(el => 
+    setElements(elements.map(el =>
       selectedIds.includes(el.id) ? { ...el, gradient: undefined } : el
     ));
     saveHistory();
   };
 
-  const exportJSON = () => {
-    const data = { elements, groups };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'design.json';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
   const importJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
@@ -1300,521 +1125,171 @@ export default function DesignTool() {
     reader.readAsText(file);
   };
 
-  const exportSVG = () => {
-    const svg = canvasRef.current;
-    if (!svg) return;
-    
-    const serializer = new XMLSerializer();
-    const svgString = serializer.serializeToString(svg);
-    const blob = new Blob([svgString], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'design.svg';
-    link.click();
-    URL.revokeObjectURL(url);
+  const moveUp = (shiftPressed: boolean) => {
+    const shift = shiftPressed ? 10 : 1;
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, y: el.y - shift } : el
+    ));
   };
 
-  const exportPNG = () => {
-    const svg = canvasRef.current;
-    if (!svg) return;
-    
-    const serializer = new XMLSerializer();
-    const svgString = serializer.serializeToString(svg);
-    const canvas = document.createElement('canvas');
-    canvas.width = 2000;
-    canvas.height = 2000;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    const img = new Image();
-    img.onload = () => {
-      ctx.drawImage(img, 0, 0);
-      canvas.toBlob(blob => {
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'design.png';
-        link.click();
-        URL.revokeObjectURL(url);
-      });
-    };
-    img.src = 'data:image/svg+xml;base64,' + btoa(svgString);
+  const moveDown = (shiftPressed: boolean) => {
+    const shift = shiftPressed ? 10 : 1;
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, y: el.y + shift } : el
+    ));
   };
 
-  const getGradientId = (element: Element) => `gradient-${element.id}`;
+  const moveLeft = (shiftPressed: boolean) => {
+    const shift = shiftPressed ? 10 : 1;
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, x: el.x - shift } : el
+    ));
+  };
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      
-      // Track modifier keys
-      if (e.key === 'Shift') setShiftKey(true);
-      if (e.key === 'Alt') setAltKey(true);
-      
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-      } else if ((e.metaKey || e.ctrlKey) && (e.key === 'Z' || (e.key === 'z' && e.shiftKey))) {
-        e.preventDefault();
-        redo();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
-        e.preventDefault();
-        duplicateSelected();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'g') {
-        e.preventDefault();
-        createGroup();
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        deleteSelected();
-      } else if (e.key === 'v') {
-        setTool('select');
-      } else if (e.key === 'r') {
-        setTool('rectangle');
-      } else if (e.key === 'c') {
-        setTool('circle');
-      } else if (e.key === 't') {
-        setTool('text');
-      } else if (e.key === 'p') {
-        setTool('pen');
-      } else if (e.key === 'f') {
-        setTool('frame');
-      } else if (e.key === 'Escape' && isDrawingPath) {
-        setPenPoints([]);
-        setIsDrawingPath(false);
-        setTool('select');
-      } else if (e.key === 'Enter' && isDrawingPath) {
-        finishPath();
-      } else if (e.key === ' ') {
-        e.preventDefault();
-        setIsPanning(true);
-      } else if (e.key === ']') {
-        bringToFront();
-      } else if (e.key === '[') {
-        sendToBack();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'l') {
-        e.preventDefault();
-        toggleLock();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === ';') {
-        e.preventDefault();
-        setSnapToGrid(!snapToGrid);
-      } else if ((e.metaKey || e.ctrlKey) && e.key === "'") {
-        e.preventDefault();
-        setShowSmartGuides(!showSmartGuides);
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
-        e.preventDefault();
-        copySelected();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
-        e.preventDefault();
-        pasteFromClipboard();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'x') {
-        e.preventDefault();
-        copySelected();
-        deleteSelected();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
-        e.preventDefault();
-        selectAll();
-      } else if ((e.metaKey || e.ctrlKey) && (e.key === '=' || e.key === '+')) {
-        e.preventDefault();
-        zoomIn();
-      } else if ((e.metaKey || e.ctrlKey) && (e.key === '-' || e.key === '_')) {
-        e.preventDefault();
-        zoomOut();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === '0') {
-        e.preventDefault();
-        fitToScreen();
-      } else if (e.key === 'Escape' && selectedIds.length > 0 && !editingTextId) {
-        deselectAll();
-      } else if (e.key === 'Enter' && editingTextId !== null) {
-        finishTextEdit();
-      } else if (e.key === 'Escape' && editingTextId !== null) {
-        setEditingTextId(null);
-        setEditingText('');
-      } else if (e.key === 'ArrowUp' && selectedIds.length > 0) {
-        e.preventDefault();
-        const shift = e.shiftKey ? 10 : 1;
-        setElements(elements.map(el => 
-          selectedIds.includes(el.id) ? { ...el, y: el.y - shift } : el
-        ));
-      } else if (e.key === 'ArrowDown' && selectedIds.length > 0) {
-        e.preventDefault();
-        const shift = e.shiftKey ? 10 : 1;
-        setElements(elements.map(el => 
-          selectedIds.includes(el.id) ? { ...el, y: el.y + shift } : el
-        ));
-      } else if (e.key === 'ArrowLeft' && selectedIds.length > 0) {
-        e.preventDefault();
-        const shift = e.shiftKey ? 10 : 1;
-        setElements(elements.map(el => 
-          selectedIds.includes(el.id) ? { ...el, x: el.x - shift } : el
-        ));
-      } else if (e.key === 'ArrowRight' && selectedIds.length > 0) {
-        e.preventDefault();
-        const shift = e.shiftKey ? 10 : 1;
-        setElements(elements.map(el => 
-          selectedIds.includes(el.id) ? { ...el, x: el.x + shift } : el
-        ));
-      }
-    };
-    
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === ' ') {
-        setIsPanning(false);
-      }
-      if (e.key === 'Shift') setShiftKey(false);
-      if (e.key === 'Alt') setAltKey(false);
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [selectedIds, elements, historyIndex, isPanning, isDrawingPath, penPoints, snapToGrid, showSmartGuides, editingTextId, zoom]);
+  const moveRight = (shiftPressed: boolean) => {
+    const shift = shiftPressed ? 10 : 1;
+    setElements(elements.map(el =>
+      selectedIds.includes(el.id) ? { ...el, x: el.x + shift } : el
+    ));
+  };
+
+  useKeyboardShortcuts({
+    onUndo: undo,
+    onRedo: redo,
+    onDuplicate: duplicateSelected,
+    onDelete: deleteSelected,
+    onGroup: createGroup,
+    onSetTool: setTool,
+    onFinishPath: finishPath,
+    onCancelPath: () => {
+      setPenPoints([]);
+      setIsDrawingPath(false);
+      setTool('select');
+    },
+    onToggleLock: toggleLock,
+    onToggleSnapToGrid: () => setSnapToGrid(!snapToGrid),
+    onToggleSmartGuides: () => setShowSmartGuides(!showSmartGuides),
+    onCopy: copySelected,
+    onPaste: pasteFromClipboard,
+    onCut: () => {
+      copySelected();
+      deleteSelected();
+    },
+    onSelectAll: () => selectAll(elements),
+    onZoomIn: zoomIn,
+    onZoomOut: zoomOut,
+    onFitToScreen: () => fitToScreen(canvasContainerRef, elements),
+    onDeselect: deselectAll,
+    onFinishTextEdit: finishTextEdit,
+    onCancelTextEdit: () => {
+      setEditingTextId(null);
+      setEditingText('');
+    },
+    onMoveUp: moveUp,
+    onMoveDown: moveDown,
+    onMoveLeft: moveLeft,
+    onMoveRight: moveRight,
+    onBringToFront: bringToFront,
+    onSendToBack: sendToBack,
+    onStartPanning: () => setIsPanning(true),
+    onStopPanning: () => setIsPanning(false),
+    setShiftKey,
+    setAltKey,
+    isDrawingPath,
+    editingTextId,
+    selectedIds
+  });
 
   const selectedElements = elements.filter(el => selectedIds.includes(el.id));
   const selectedElement = selectedElements.length === 1 ? selectedElements[0] : null;
   const hasMultipleSelected = selectedIds.length > 1;
+  const hasTextSelected = selectedIds.length === 1 && selectedElement?.type === 'text';
 
   return (
     <div className={`flex h-screen ${darkMode ? 'bg-gray-900' : 'bg-gray-100'} overflow-hidden`}>
-      {/* Toolbar */}
-      <div className={`w-16 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-r flex flex-col items-center py-4 gap-2 overflow-y-auto flex-shrink-0`}>
-        <button
-          onClick={() => setDarkMode(!darkMode)}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
-          title="Toggle Dark Mode"
-        >
-          {darkMode ? <Sun size={20} className="text-yellow-400" /> : <Moon size={20} />}
-        </button>
+      <Toolbar
+        tool={tool}
+        setTool={setTool}
+        darkMode={darkMode}
+        setDarkMode={setDarkMode}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={undo}
+        onRedo={redo}
+        selectedIds={selectedIds}
+        onDuplicate={duplicateSelected}
+        onDelete={deleteSelected}
+        onToggleLock={toggleLock}
+        onCreateGroup={createGroup}
+        onCreateComponent={createComponent}
+        showStylesPanel={showStylesPanel}
+        onToggleStylesPanel={() => setShowStylesPanel(!showStylesPanel)}
+        showLayers={showLayers}
+        onToggleLayers={() => setShowLayers(!showLayers)}
+        onImportJSON={importJSON}
+        onExportJSON={() => exportToJSON({ elements, groups })}
+        onExportSVG={() => canvasRef.current && exportToSVG(canvasRef.current)}
+        onImageUpload={handleImageUpload}
+        selectedElementLocked={selectedElement?.locked}
+        fileInputRef={fileInputRef}
+      />
 
-        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
-        
-        <button
-          onClick={() => setTool('select')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'select' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Select (V)"
-        >
-          <MousePointer size={20} />
-        </button>
-        <button
-          onClick={() => setTool('rectangle')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'rectangle' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Rectangle (R)"
-        >
-          <Square size={20} />
-        </button>
-        <button
-          onClick={() => setTool('circle')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'circle' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Circle (C)"
-        >
-          <Circle size={20} />
-        </button>
-        <button
-          onClick={() => setTool('text')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'text' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Text (T)"
-        >
-          <Type size={20} />
-        </button>
-        <button
-          onClick={() => setTool('line')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'line' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Line (L)"
-        >
-          <Minus size={20} />
-        </button>
-        <button
-          onClick={() => setTool('pen')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'pen' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Pen Tool (P)"
-        >
-          <Pen size={20} />
-        </button>
-        <button
-          onClick={() => setTool('frame')}
-          className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} ${tool === 'frame' ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''} ${darkMode ? 'text-gray-200' : ''}`}
-          title="Frame (F)"
-        >
-          <Box size={20} />
-        </button>
-        
-        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
-        
-        <button onClick={undo} disabled={historyIndex <= 0} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Undo (Cmd+Z)">
-          <Undo2 size={20} />
-        </button>
-        <button onClick={redo} disabled={historyIndex >= history.length - 1} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Redo (Cmd+Shift+Z)">
-          <Redo2 size={20} />
-        </button>
-        
-        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
-        
-        <button onClick={duplicateSelected} disabled={selectedIds.length === 0} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Duplicate (Cmd+D)">
-          <Copy size={20} />
-        </button>
-        <button onClick={deleteSelected} disabled={selectedIds.length === 0} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Delete">
-          <Trash2 size={20} />
-        </button>
-        <button onClick={toggleLock} disabled={selectedIds.length === 0} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Lock/Unlock (Cmd+L)">
-          {selectedElement?.locked ? <Lock size={20} /> : <Unlock size={20} />}
-        </button>
-        <button onClick={createGroup} disabled={selectedIds.length < 2} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Group (Cmd+G)">
-          <FolderPlus size={20} />
-        </button>
-        <button onClick={createComponent} disabled={selectedIds.length !== 1} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 disabled:opacity-30 text-gray-200' : 'hover:bg-gray-100 disabled:opacity-30'}`} title="Create Component">
-          <Package size={20} />
-        </button>
-        <button onClick={() => setShowStylesPanel(!showStylesPanel)} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'} ${showStylesPanel ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : ''}`} title="Styles Panel">
-          <Palette size={20} />
-        </button>
-        
-        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
-        
-        <button onClick={() => setShowLayers(!showLayers)} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'}`} title="Toggle Layers">
-          <Layers size={20} />
-        </button>
-        <label className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'} cursor-pointer`} title="Import JSON">
-          <Upload size={20} />
-          <input type="file" accept=".json" onChange={importJSON} className="hidden" />
-        </label>
-        <button onClick={exportJSON} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'}`} title="Export JSON">
-          <Save size={20} />
-        </button>
-        <button onClick={exportSVG} className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'}`} title="Export SVG">
-          <Download size={20} />
-        </button>
-        
-        <div className={`h-px w-10 ${darkMode ? 'bg-gray-700' : 'bg-gray-200'} my-2`} />
-        
-        <label className={`p-3 rounded ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-100'} cursor-pointer`} title="Upload Image">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleImageUpload}
-            className="hidden"
-          />
-          <Upload size={20} />
-        </label>
-      </div>
-
-      {/* Layers Panel */}
       {showLayers && (
-        <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-r p-4 overflow-y-auto flex-shrink-0 h-screen`}>
-          <h3 className="font-semibold mb-3">Layers</h3>
-          <div className="space-y-1">
-            {[...elements].sort((a, b) => b.zIndex - a.zIndex).map(el => (
-              <div
-                key={el.id}
-                onClick={() => setSelectedIds([el.id])}
-                className={`px-3 py-2 rounded text-sm cursor-pointer flex justify-between items-center ${
-                  selectedIds.includes(el.id) ? (darkMode ? 'bg-blue-900' : 'bg-blue-100') : (darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100')
-                } ${!el.visible ? 'opacity-50' : ''}`}
-              >
-                <span className="flex items-center gap-2">
-                  {el.isComponent && <Package size={12} />}
-                  {el.layerName || `${el.type} ${el.id}`}
-                </span>
-                {el.locked && <Lock size={14} />}
-              </div>
-            ))}
-          </div>
-        </div>
+        <LayersPanel
+          elements={elements}
+          selectedIds={selectedIds}
+          darkMode={darkMode}
+          onSelectElement={(id) => setSelectedIds([id])}
+        />
       )}
 
-      {/* Styles Panel */}
       {showStylesPanel && (
-        <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-r p-4 overflow-y-auto flex-shrink-0 h-screen`}>
-          <h3 className="font-semibold mb-3">Styles</h3>
-          
-          <div className="space-y-4">
-            {/* Text Styles */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <h4 className="text-sm font-medium">Text Styles</h4>
-                <button 
-                  onClick={createTextStyle}
-                  disabled={selectedIds.length !== 1 || !elements.find(el => selectedIds.includes(el.id) && el.type === 'text')}
-                  className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-blue-900 hover:bg-blue-800 disabled:opacity-30' : 'bg-blue-100 hover:bg-blue-200 disabled:opacity-30'}`}
-                >
-                  + New
-                </button>
-              </div>
-              <div className="space-y-1">
-                {textStyles.map(style => (
-                  <div
-                    key={style.id}
-                    onClick={() => applyTextStyle(style.id)}
-                    className={`px-2 py-2 rounded text-xs cursor-pointer ${darkMode ? 'hover:bg-gray-700 bg-gray-750' : 'hover:bg-gray-100 bg-gray-50'}`}
-                  >
-                    <div className="font-medium">{style.name}</div>
-                    <div className="text-gray-500">{style.fontFamily} • {style.fontSize}px</div>
-                  </div>
-                ))}
-                {textStyles.length === 0 && (
-                  <p className="text-xs text-gray-500">No text styles yet</p>
-                )}
-              </div>
-            </div>
-
-            {/* Color Styles */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <h4 className="text-sm font-medium">Color Styles</h4>
-                <button 
-                  onClick={createColorStyle}
-                  disabled={selectedIds.length !== 1}
-                  className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-blue-900 hover:bg-blue-800 disabled:opacity-30' : 'bg-blue-100 hover:bg-blue-200 disabled:opacity-30'}`}
-                >
-                  + New
-                </button>
-              </div>
-              <div className="space-y-1">
-                {colorStyles.map(style => (
-                  <div
-                    key={style.id}
-                    onClick={() => applyColorStyle(style.id)}
-                    className={`px-2 py-2 rounded text-xs cursor-pointer flex items-center gap-2 ${darkMode ? 'hover:bg-gray-700 bg-gray-750' : 'hover:bg-gray-100 bg-gray-50'}`}
-                  >
-                    <div className="w-6 h-6 rounded border" style={{ backgroundColor: style.color }}></div>
-                    <div>
-                      <div className="font-medium">{style.name}</div>
-                      <div className="text-gray-500">{style.color}</div>
-                    </div>
-                  </div>
-                ))}
-                {colorStyles.length === 0 && (
-                  <p className="text-xs text-gray-500">No color styles yet</p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <StylesPanel
+          textStyles={textStyles}
+          colorStyles={colorStyles}
+          darkMode={darkMode}
+          selectedIds={selectedIds}
+          onCreateTextStyle={createTextStyle}
+          onCreateColorStyle={createColorStyle}
+          onApplyTextStyle={applyTextStyle}
+          onApplyColorStyle={applyColorStyle}
+          hasTextSelected={hasTextSelected}
+        />
       )}
 
-      {/* Canvas */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Bar */}
-        <div className={`h-12 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-b flex items-center justify-between px-4 flex-shrink-0`}>
-          <div className="flex items-center gap-2">
-            <button onClick={zoomOut} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Zoom Out (Cmd+-)">
-              <ZoomOut size={18} />
-            </button>
-            <span className="text-sm font-mono w-16 text-center">{Math.round(zoom * 100)}%</span>
-            <button onClick={zoomIn} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Zoom In (Cmd++)">
-              <ZoomIn size={18} />
-            </button>
-            <button onClick={fitToScreen} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`} title="Fit to Screen (Cmd+0)">
-              Fit
-            </button>
+        <TopBar
+          zoom={zoom}
+          darkMode={darkMode}
+          snapToGrid={snapToGrid}
+          showSmartGuides={showSmartGuides}
+          selectedIds={selectedIds}
+          shiftKey={shiftKey}
+          altKey={altKey}
+          isDrawingPath={isDrawingPath}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onFitToScreen={() => fitToScreen(canvasContainerRef, elements)}
+          onToggleSnapToGrid={() => setSnapToGrid(!snapToGrid)}
+          onToggleSmartGuides={() => setShowSmartGuides(!showSmartGuides)}
+          onSelectAll={() => selectAll(elements)}
+          onDeselectAll={deselectAll}
+          onBooleanUnion={booleanUnion}
+          onBooleanSubtract={booleanSubtract}
+          onDistributeHorizontally={distributeHorizontally}
+          onDistributeVertically={distributeVertically}
+          onAlignLeft={alignLeft}
+          onAlignCenter={alignCenter}
+          onAlignRight={alignRight}
+          onAlignMiddle={alignMiddle}
+          onAlignTop={alignTop}
+          onAlignBottom={alignBottom}
+          onFinishPath={finishPath}
+          onExportSVG={() => canvasRef.current && exportToSVG(canvasRef.current)}
+          onExportPNG={() => canvasRef.current && exportToPNG(canvasRef.current)}
+          totalElements={elements.filter(el => !el.locked && el.visible !== false).length}
+        />
 
-            <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
-            
-            <button 
-              onClick={() => setSnapToGrid(!snapToGrid)}
-              className={`px-3 py-1 rounded text-sm ${snapToGrid ? (darkMode ? 'bg-blue-900 text-blue-300' : 'bg-blue-100 text-blue-700') : (darkMode ? 'bg-gray-700' : 'bg-gray-100')}`}
-              title="Toggle Snap to Grid (Cmd+;)"
-            >
-              Snap: {snapToGrid ? 'ON' : 'OFF'}
-            </button>
-
-            <button 
-              onClick={() => setShowSmartGuides(!showSmartGuides)}
-              className={`px-3 py-1 rounded text-sm ${showSmartGuides ? (darkMode ? 'bg-purple-900 text-purple-300' : 'bg-purple-100 text-purple-700') : (darkMode ? 'bg-gray-700' : 'bg-gray-100')}`}
-              title="Toggle Smart Guides (Cmd+')"
-            >
-              Guides: {showSmartGuides ? 'ON' : 'OFF'}
-            </button>
-
-            {selectedIds.length > 0 && (
-              <>
-                <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
-                <button onClick={selectAll} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`} title="Select All (Cmd+A)">
-                  Select All ({elements.filter(el => !el.locked && el.visible !== false).length})
-                </button>
-                <button onClick={deselectAll} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`} title="Deselect (Esc)">
-                  Deselect ({selectedIds.length})
-                </button>
-              </>
-            )}
-
-            {selectedIds.length >= 2 && (
-              <>
-                <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
-                <button onClick={booleanUnion} className={`px-3 py-1 ${darkMode ? 'bg-purple-900 hover:bg-purple-800' : 'bg-purple-100 hover:bg-purple-200'} rounded text-sm`} title="Union">
-                  Union
-                </button>
-                {selectedIds.length === 2 && (
-                  <button onClick={booleanSubtract} className={`px-3 py-1 ${darkMode ? 'bg-purple-900 hover:bg-purple-800' : 'bg-purple-100 hover:bg-purple-200'} rounded text-sm`} title="Subtract">
-                    Subtract
-                  </button>
-                )}
-              </>
-            )}
-            
-            {selectedIds.length >= 3 && (
-              <>
-                <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
-                <button onClick={distributeHorizontally} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`} title="Distribute Horizontally">
-                  Distribute H
-                </button>
-                <button onClick={distributeVertically} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`} title="Distribute Vertically">
-                  Distribute V
-                </button>
-              </>
-            )}
-            
-            {selectedIds.length >= 2 && (
-              <>
-                <div className={`h-6 w-px ${darkMode ? 'bg-gray-700' : 'bg-gray-300'} mx-2`} />
-                <button onClick={alignLeft} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Left">
-                  <AlignLeft size={18} />
-                </button>
-                <button onClick={alignCenter} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Center">
-                  <AlignCenter size={18} />
-                </button>
-                <button onClick={alignRight} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Right">
-                  <AlignRight size={18} />
-                </button>
-                <button onClick={alignMiddle} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Middle">
-                  <AlignHorizontalJustifyCenter size={18} />
-                </button>
-                <button onClick={alignTop} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Top">
-                  <AlignVerticalJustifyCenter size={18} style={{ transform: 'rotate(180deg)' }} />
-                </button>
-                <button onClick={alignBottom} className={`p-2 ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} rounded`} title="Align Bottom">
-                  <AlignVerticalJustifyCenter size={18} />
-                </button>
-              </>
-            )}
-          </div>
-          
-          <div className="flex gap-2">
-            {(shiftKey || altKey) && (
-              <div className={`flex items-center gap-2 px-3 py-1 ${darkMode ? 'bg-blue-900 text-blue-300' : 'bg-blue-50 text-blue-700'} rounded text-sm`}>
-                {shiftKey && <span>⇧ Aspect Ratio Lock</span>}
-                {shiftKey && altKey && <span>•</span>}
-                {altKey && <span>⌥ Resize from Center</span>}
-              </div>
-            )}
-            {isDrawingPath && (
-              <button onClick={finishPath} className={`px-3 py-1 ${darkMode ? 'bg-green-700 hover:bg-green-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded text-sm`}>
-                Finish Path (Enter)
-              </button>
-            )}
-            <button onClick={exportSVG} className={`px-3 py-1 ${darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200'} rounded text-sm`}>
-              Export SVG
-            </button>
-            <button onClick={exportPNG} className={`px-3 py-1 ${darkMode ? 'bg-blue-700 hover:bg-blue-600' : 'bg-blue-500 hover:bg-blue-600'} text-white rounded text-sm`}>
-              Export PNG
-            </button>
-          </div>
-        </div>
-
-        {/* Canvas Area */}
         <div ref={canvasContainerRef} className="flex-1 overflow-auto">
           <svg
             ref={canvasRef}
@@ -1825,27 +1300,26 @@ export default function DesignTool() {
             onMouseDown={handleCanvasMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            style={{ 
-              cursor: isPanning ? 'grabbing' : tool === 'select' ? 'default' : 'crosshair',
+            style={{
+              cursor: isPanning || tool === 'hand' ? 'grab' : tool === 'select' ? 'default' : tool === 'eyedropper' ? 'crosshair' : 'crosshair',
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transformOrigin: '0 0'
             }}
           >
             <defs>
               <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e5e7eb" strokeWidth="0.5"/>
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e5e7eb" strokeWidth="0.5" />
               </pattern>
-              
-              {/* Gradients */}
+
               {elements.filter(el => el.gradient).map(element => {
-                const gradId = getGradientId(element);
+                const gradId = getGradientId(element.id);
                 if (element.gradient?.type === 'linear') {
                   const angle = element.gradient.angle || 0;
                   const x1 = 50 - 50 * Math.cos((angle * Math.PI) / 180);
                   const y1 = 50 - 50 * Math.sin((angle * Math.PI) / 180);
                   const x2 = 50 + 50 * Math.cos((angle * Math.PI) / 180);
                   const y2 = 50 + 50 * Math.sin((angle * Math.PI) / 180);
-                  
+
                   return (
                     <linearGradient key={gradId} id={gradId} x1={`${x1}%`} y1={`${y1}%`} x2={`${x2}%`} y2={`${y2}%`}>
                       {element.gradient.stops.map((stop, i) => (
@@ -1865,8 +1339,7 @@ export default function DesignTool() {
               })}
             </defs>
             <rect width="2000" height="2000" fill="url(#grid)" />
-            
-            {/* Smart Guides */}
+
             {smartGuides.map((guide, i) => (
               guide.type === 'vertical' ? (
                 <line
@@ -1893,7 +1366,6 @@ export default function DesignTool() {
               )
             ))}
 
-            {/* Selection Box */}
             {selectionBox && (
               <rect
                 x={Math.min(selectionBox.startX, selectionBox.endX)}
@@ -1907,7 +1379,6 @@ export default function DesignTool() {
               />
             )}
 
-            {/* Draw Preview */}
             {isDrawing && drawPreview && (
               <>
                 {tool === 'rectangle' && (
@@ -1957,24 +1428,61 @@ export default function DesignTool() {
                     strokeDasharray="5,5"
                   />
                 )}
+                {tool === 'arrow' && (
+                  <>
+                    <line
+                      x1={drawPreview.x}
+                      y1={drawPreview.y + drawPreview.height / 2}
+                      x2={drawPreview.x + drawPreview.width}
+                      y2={drawPreview.y + drawPreview.height / 2}
+                      stroke="#3b82f6"
+                      strokeWidth="2"
+                      strokeDasharray="5,5"
+                    />
+                    <path
+                      d={generateArrowPath(drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height, 10).head}
+                      stroke="#3b82f6"
+                      strokeWidth="2"
+                      fill="none"
+                      strokeDasharray="5,5"
+                    />
+                  </>
+                )}
+                {tool === 'polygon' && (
+                  <path
+                    d={generatePolygonPath(drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height, 6)}
+                    fill="rgba(59, 130, 246, 0.2)"
+                    stroke="#3b82f6"
+                    strokeWidth="2"
+                    strokeDasharray="5,5"
+                  />
+                )}
+                {tool === 'star' && (
+                  <path
+                    d={generateStarPath(drawPreview.x, drawPreview.y, drawPreview.width, drawPreview.height, 5)}
+                    fill="rgba(59, 130, 246, 0.2)"
+                    stroke="#3b82f6"
+                    strokeWidth="2"
+                    strokeDasharray="5,5"
+                  />
+                )}
               </>
             )}
-            
-            {/* Elements */}
+
             {[...elements].filter(el => el.visible !== false).sort((a, b) => a.zIndex - b.zIndex).map(element => {
-              const fillValue = element.gradient ? `url(#${getGradientId(element)})` : element.fill;
-              const shadowFilter = element.shadow 
+              const fillValue = element.gradient ? `url(#${getGradientId(element.id)})` : element.fill;
+              const shadowFilter = element.shadow
                 ? `drop-shadow(${element.shadow.offsetX}px ${element.shadow.offsetY}px ${element.shadow.blur}px ${element.shadow.color})`
                 : undefined;
-              
+
               const isSelected = selectedIds.includes(element.id);
               const blurFilter = element.blur ? `blur(${element.blur}px)` : '';
               const combinedFilter = [shadowFilter, blurFilter].filter(Boolean).join(' ');
-              
+
               return (
                 <g key={element.id}>
-                  <g 
-                    onMouseDown={(e) => handleMouseDown(e, element)} 
+                  <g
+                    onMouseDown={(e) => handleMouseDown(e, element)}
                     opacity={element.opacity}
                     style={{ filter: combinedFilter }}
                   >
@@ -2004,7 +1512,7 @@ export default function DesignTool() {
                         rx={element.borderRadius || 0}
                         ry={element.borderRadius || 0}
                         style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
-                        transform={`rotate(${element.rotation || 0} ${element.x + element.width/2} ${element.y + element.height/2})`}
+                        transform={`rotate(${element.rotation || 0} ${element.x + element.width / 2} ${element.y + element.height / 2})`}
                       />
                     )}
                     {element.type === 'circle' && (
@@ -2047,6 +1555,44 @@ export default function DesignTool() {
                         fill={fillValue}
                         stroke={isSelected ? '#3b82f6' : element.stroke || '#000000'}
                         strokeWidth={isSelected ? 3 : element.strokeWidth || 2}
+                        style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
+                      />
+                    )}
+                    {element.type === 'arrow' && (
+                      <>
+                        <line
+                          x1={element.x}
+                          y1={element.y + element.height / 2}
+                          x2={element.x + element.width}
+                          y2={element.y + element.height / 2}
+                          stroke={isSelected ? '#3b82f6' : element.stroke || '#000000'}
+                          strokeWidth={element.strokeWidth || 2}
+                          style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
+                        />
+                        <path
+                          d={generateArrowPath(element.x, element.y, element.width, element.height, element.arrowHeadSize || 10).head}
+                          stroke={isSelected ? '#3b82f6' : element.stroke || '#000000'}
+                          strokeWidth={element.strokeWidth || 2}
+                          fill="none"
+                          style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
+                        />
+                      </>
+                    )}
+                    {element.type === 'polygon' && (
+                      <path
+                        d={generatePolygonPath(element.x, element.y, element.width, element.height, element.points || 6)}
+                        fill={fillValue}
+                        stroke={isSelected ? '#3b82f6' : element.stroke || 'none'}
+                        strokeWidth={isSelected ? 2 : element.strokeWidth || 0}
+                        style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
+                      />
+                    )}
+                    {element.type === 'star' && (
+                      <path
+                        d={generateStarPath(element.x, element.y, element.width, element.height, element.points || 5)}
+                        fill={fillValue}
+                        stroke={isSelected ? '#3b82f6' : element.stroke || 'none'}
+                        strokeWidth={isSelected ? 2 : element.strokeWidth || 0}
                         style={{ cursor: element.locked ? 'not-allowed' : 'move' }}
                       />
                     )}
@@ -2110,112 +1656,50 @@ export default function DesignTool() {
                       </>
                     )}
                   </g>
-                  
-                  {/* Resize Handles */}
-                  {isSelected && !element.locked && element.type !== 'line' && element.type !== 'path' && selectedIds.length === 1 && (
+
+                  {isSelected && !element.locked && element.type !== 'line' && element.type !== 'path' && element.type !== 'arrow' && selectedIds.length === 1 && (
                     <g>
-                      {/* Corner handles */}
-                      <rect
-                        x={element.x - 4}
-                        y={element.y - 4}
-                        width="8"
-                        height="8"
-                        fill="white"
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        style={{ cursor: 'nwse-resize' }}
-                        onMouseDown={(e) => handleResizeMouseDown(e, element.id, 'nw')}
-                      />
-                      <rect
-                        x={element.x + element.width - 4}
-                        y={element.y - 4}
-                        width="8"
-                        height="8"
-                        fill="white"
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        style={{ cursor: 'nesw-resize' }}
-                        onMouseDown={(e) => handleResizeMouseDown(e, element.id, 'ne')}
-                      />
-                      <rect
-                        x={element.x - 4}
-                        y={element.y + element.height - 4}
-                        width="8"
-                        height="8"
-                        fill="white"
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        style={{ cursor: 'nesw-resize' }}
-                        onMouseDown={(e) => handleResizeMouseDown(e, element.id, 'sw')}
-                      />
-                      <rect
-                        x={element.x + element.width - 4}
-                        y={element.y + element.height - 4}
-                        width="8"
-                        height="8"
-                        fill="white"
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        style={{ cursor: 'nwse-resize' }}
-                        onMouseDown={(e) => handleResizeMouseDown(e, element.id, 'se')}
-                      />
-                      
-                      {/* Edge handles */}
-                      <rect
-                        x={element.x + element.width / 2 - 4}
-                        y={element.y - 4}
-                        width="8"
-                        height="8"
-                        fill="white"
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        style={{ cursor: 'ns-resize' }}
-                        onMouseDown={(e) => handleResizeMouseDown(e, element.id, 'n')}
-                      />
-                      <rect
-                        x={element.x + element.width / 2 - 4}
-                        y={element.y + element.height - 4}
-                        width="8"
-                        height="8"
-                        fill="white"
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        style={{ cursor: 'ns-resize' }}
-                        onMouseDown={(e) => handleResizeMouseDown(e, element.id, 's')}
-                      />
-                      <rect
-                        x={element.x - 4}
-                        y={element.y + element.height / 2 - 4}
-                        width="8"
-                        height="8"
-                        fill="white"
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        style={{ cursor: 'ew-resize' }}
-                        onMouseDown={(e) => handleResizeMouseDown(e, element.id, 'w')}
-                      />
-                      <rect
-                        x={element.x + element.width - 4}
-                        y={element.y + element.height / 2 - 4}
-                        width="8"
-                        height="8"
-                        fill="white"
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        style={{ cursor: 'ew-resize' }}
-                        onMouseDown={(e) => handleResizeMouseDown(e, element.id, 'e')}
-                      />
+                      {['nw', 'ne', 'sw', 'se', 'n', 's', 'w', 'e'].map((handle) => {
+                        let x = element.x;
+                        let y = element.y;
+                        let cursor = 'nwse-resize';
+
+                        if (handle.includes('e')) x = element.x + element.width;
+                        if (handle.includes('w')) x = element.x;
+                        if (handle.includes('s')) y = element.y + element.height;
+                        if (handle.includes('n')) y = element.y;
+                        if (!handle.includes('n') && !handle.includes('s')) y = element.y + element.height / 2;
+                        if (!handle.includes('e') && !handle.includes('w')) x = element.x + element.width / 2;
+
+                        if (handle === 'ne' || handle === 'sw') cursor = 'nesw-resize';
+                        if (handle === 'n' || handle === 's') cursor = 'ns-resize';
+                        if (handle === 'e' || handle === 'w') cursor = 'ew-resize';
+
+                        return (
+                          <rect
+                            key={handle}
+                            x={x - 4}
+                            y={y - 4}
+                            width="8"
+                            height="8"
+                            fill="white"
+                            stroke="#3b82f6"
+                            strokeWidth="2"
+                            style={{ cursor }}
+                            onMouseDown={(e) => handleResizeMouseDown(e, element.id, handle)}
+                          />
+                        );
+                      })}
                     </g>
                   )}
                 </g>
               );
             })}
-            
-            {/* Drawing path preview */}
+
             {isDrawingPath && penPoints.length > 0 && (
               <>
                 <path
-                  d={penPoints.map((p, i) => 
+                  d={penPoints.map((p, i) =>
                     i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
                   ).join(' ')}
                   fill="none"
@@ -2232,441 +1716,26 @@ export default function DesignTool() {
         </div>
       </div>
 
-      {/* Properties Panel - Always Visible */}
-      <div className={`w-64 ${darkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-200'} border-l p-4 overflow-y-auto flex-shrink-0 h-screen`}>
-        <h3 className="font-semibold mb-4">
-          {hasMultipleSelected ? `Properties (${selectedIds.length} selected)` : selectedElement ? 'Properties' : 'Design'}
-        </h3>
-        
-        {!selectedElement && !hasMultipleSelected ? (
-          <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            <p className="mb-4">Select an element to edit its properties</p>
-            <div className="space-y-2">
-              <div className={`p-3 ${darkMode ? 'bg-gray-700' : 'bg-gray-50'} rounded`}>
-                <p className="font-medium mb-1">Quick Tips:</p>
-                <ul className="text-xs space-y-1">
-                  <li>• Press V for Select tool</li>
-                  <li>• Press R for Rectangle</li>
-                  <li>• Press C for Circle</li>
-                  <li>• Press T for Text</li>
-                  <li>• Press P for Pen tool</li>
-                  <li>• Cmd+A to select all</li>
-                  <li>• Cmd+D to duplicate</li>
-                  <li>• Cmd+G to group</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {selectedElement && (
-              <>
-                <div>
-                  <label className="text-sm text-gray-600">Layer Name</label>
-                  <input
-                    type="text"
-                    value={selectedElement.layerName || ''}
-                    onChange={(e) => updateProperty('layerName', e.target.value)}
-                    className="w-full px-2 py-1 border rounded"
-                  />
-                    </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-sm text-gray-600">X</label>
-                    <input
-                      type="number"
-                      value={Math.round(selectedElement.x)}
-                      onChange={(e) => updateProperty('x', parseInt(e.target.value) || 0)}
-                      className="w-full px-2 py-1 border rounded text-sm"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="text-sm text-gray-600">Y</label>
-                    <input
-                      type="number"
-                      value={Math.round(selectedElement.y)}
-                      onChange={(e) => updateProperty('y', parseInt(e.target.value) || 0)}
-                      className="w-full px-2 py-1 border rounded text-sm"
-                    />
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-sm text-gray-600">Width</label>
-                    <input
-                      type="number"
-                      value={Math.round(selectedElement.width)}
-                      onChange={(e) => updateProperty('width', parseInt(e.target.value) || 1)}
-                      className="w-full px-2 py-1 border rounded text-sm"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="text-sm text-gray-600">Height</label>
-                    <input
-                      type="number"
-                      value={Math.round(selectedElement.height)}
-                      onChange={(e) => updateProperty('height', parseInt(e.target.value) || 1)}
-                      className="w-full px-2 py-1 border rounded text-sm"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-sm text-gray-600">Rotation</label>
-                    <input
-                      type="number"
-                      value={selectedElement.rotation || 0}
-                      onChange={(e) => updateProperty('rotation', parseInt(e.target.value) || 0)}
-                      className="w-full px-2 py-1 border rounded text-sm"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-sm text-gray-600">Opacity %</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={Math.round((selectedElement.opacity || 1) * 100)}
-                      onChange={(e) => updateProperty('opacity', (parseInt(e.target.value) || 100) / 100)}
-                      className="w-full px-2 py-1 border rounded text-sm"
-                    />
-                  </div>
-                </div>
-            
-                <div>
-                  <label className="text-sm text-gray-600">Fill Color</label>
-                  <input
-                    type="color"
-                    value={selectedElement.fill}
-                    onChange={(e) => updateProperty('fill', e.target.value)}
-                    className="w-full h-10 border rounded cursor-pointer"
-                  />
-                </div>
-
-                {(selectedElement.type === 'rectangle' || selectedElement.type === 'image') && (
-                  <div>
-                    <label className="text-sm text-gray-600">Border Radius</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={selectedElement.borderRadius || 0}
-                      onChange={(e) => updateProperty('borderRadius', parseInt(e.target.value) || 0)}
-                      className="w-full px-2 py-1 border rounded text-sm"
-                    />
-                  </div>
-                )}
-
-                {selectedElement.type !== 'text' && selectedElement.type !== 'image' && (
-                  <>
-                    <div>
-                      <label className="text-sm text-gray-600">Stroke Color</label>
-                      <input
-                        type="color"
-                        value={selectedElement.stroke || '#000000'}
-                        onChange={(e) => updateProperty('stroke', e.target.value)}
-                        className="w-full h-10 border rounded cursor-pointer"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="text-sm text-gray-600">Stroke Width</label>
-                      <input
-                        type="number"
-                        value={selectedElement.strokeWidth || 0}
-                        onChange={(e) => updateProperty('strokeWidth', parseInt(e.target.value) || 0)}
-                        className="w-full px-2 py-1 border rounded"
-                      />
-                    </div>
-                  </>
-                )}
-                
-                {selectedElement.type === 'text' && (
-                  <>
-                    <div>
-                      <label className="text-sm text-gray-600">Text</label>
-                      <textarea
-                        value={selectedElement.text || ''}
-                        onChange={(e) => updateProperty('text', e.target.value)}
-                        className="w-full px-2 py-1 border rounded"
-                        rows={3}
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="text-sm text-gray-600">Font Size</label>
-                      <input
-                        type="number"
-                        value={selectedElement.fontSize || 16}
-                        onChange={(e) => updateProperty('fontSize', parseInt(e.target.value) || 12)}
-                        className="w-full px-2 py-1 border rounded"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-sm text-gray-600">Font Family</label>
-                      <select
-                        value={selectedElement.fontFamily || 'Arial, sans-serif'}
-                        onChange={(e) => updateProperty('fontFamily', e.target.value)}
-                        className="w-full px-2 py-1 border rounded"
-                      >
-                        <option value="Arial, sans-serif">Arial</option>
-                        <option value="'Times New Roman', serif">Times New Roman</option>
-                        <option value="'Courier New', monospace">Courier New</option>
-                        <option value="Georgia, serif">Georgia</option>
-                        <option value="Verdana, sans-serif">Verdana</option>
-                        <option value="'Comic Sans MS', cursive">Comic Sans MS</option>
-                      </select>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => updateProperty('fontWeight', selectedElement.fontWeight === 'bold' ? 'normal' : 'bold')}
-                        className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.fontWeight === 'bold' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                      >
-                        <strong>B</strong> Bold
-                      </button>
-                      <button
-                        onClick={() => updateProperty('fontStyle', selectedElement.fontStyle === 'italic' ? 'normal' : 'italic')}
-                        className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.fontStyle === 'italic' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                      >
-                        <em>I</em> Italic
-                      </button>
-                    </div>
-
-                    <div>
-                      <button
-                        onClick={() => updateProperty('textDecoration', selectedElement.textDecoration === 'underline' ? 'none' : 'underline')}
-                        className={`w-full px-3 py-2 rounded text-sm ${selectedElement.textDecoration === 'underline' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                      >
-                        <u>U</u> Underline
-                      </button>
-                    </div>
-
-                    <div>
-                      <label className="text-sm text-gray-600">Text Align</label>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => updateProperty('textAlign', 'left')}
-                          className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'left' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                        >
-                          Left
-                        </button>
-                        <button
-                          onClick={() => updateProperty('textAlign', 'center')}
-                          className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'center' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                        >
-                          Center
-                        </button>
-                        <button
-                          onClick={() => updateProperty('textAlign', 'right')}
-                          className={`flex-1 px-3 py-2 rounded text-sm ${selectedElement.textAlign === 'right' ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-                        >
-                          Right
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* Component Variants */}
-                {selectedElement.isComponent && selectedElement.componentId && (
-                  <div>
-                    <label className="text-sm text-gray-600">Component Variant</label>
-                    <select
-                      value={selectedElement.componentVariant || 'default'}
-                      onChange={(e) => updateProperty('componentVariant', e.target.value)}
-                      className="w-full px-2 py-1 border rounded"
-                    >
-                      <option value="default">Default</option>
-                      <option value="hover">Hover</option>
-                      <option value="pressed">Pressed</option>
-                    </select>
-                  </div>
-                )}
-
-                {/* Auto Layout */}
-                {selectedElement.isFrame && (
-                  <div className="pt-4 border-t">
-                    <div className="flex justify-between items-center mb-2">
-                      <h4 className="text-sm font-semibold">Auto Layout</h4>
-                      <button
-                        onClick={toggleAutoLayout}
-                        className={`text-xs px-2 py-1 rounded ${selectedElement.autoLayout ? 'bg-green-100 hover:bg-green-200' : 'bg-blue-100 hover:bg-blue-200'}`}
-                      >
-                        {selectedElement.autoLayout ? 'ON' : 'OFF'}
-                      </button>
-                    </div>
-                    
-                    {selectedElement.autoLayout && (
-                      <div className="space-y-2">
-                        <div>
-                          <label className="text-xs text-gray-600">Direction</label>
-                          <select
-                            value={selectedElement.autoLayout.direction}
-                            onChange={(e) => updateAutoLayout('direction', e.target.value as any)}
-                            className="w-full px-2 py-1 border rounded text-sm"
-                          >
-                            <option value="horizontal">Horizontal</option>
-                            <option value="vertical">Vertical</option>
-                          </select>
-                        </div>
-                        
-                        <div>
-                          <label className="text-xs text-gray-600">Spacing</label>
-                          <input
-                            type="number"
-                            value={selectedElement.autoLayout.spacing}
-                            onChange={(e) => updateAutoLayout('spacing', parseInt(e.target.value) || 0)}
-                            className="w-full px-2 py-1 border rounded text-sm"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="text-xs text-gray-600">Padding</label>
-                          <input
-                            type="number"
-                            value={selectedElement.autoLayout.padding}
-                            onChange={(e) => updateAutoLayout('padding', parseInt(e.target.value) || 0)}
-                            className="w-full px-2 py-1 border rounded text-sm"
-                          />
-                        </div>
-                        
-                        <div>
-                          <label className="text-xs text-gray-600">Alignment</label>
-                          <select
-                            value={selectedElement.autoLayout.alignment}
-                            onChange={(e) => updateAutoLayout('alignment', e.target.value as any)}
-                            className="w-full px-2 py-1 border rounded text-sm"
-                          >
-                            <option value="start">Start</option>
-                            <option value="center">Center</option>
-                            <option value="end">End</option>
-                            <option value="space-between">Space Between</option>
-                          </select>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Constraints */}
-                {selectedElement.parentFrameId && (
-                  <div className="pt-4 border-t">
-                    <h4 className="text-sm font-semibold mb-2">Constraints</h4>
-                    
-                    <div className="space-y-2">
-                      <div>
-                        <label className="text-xs text-gray-600">Horizontal</label>
-                        <select
-                          value={selectedElement.constraints?.horizontal || 'left'}
-                          onChange={(e) => setConstraints(e.target.value, selectedElement.constraints?.vertical || 'top')}
-                          className="w-full px-2 py-1 border rounded text-sm"
-                        >
-                          <option value="left">Left</option>
-                          <option value="right">Right</option>
-                          <option value="center">Center</option>
-                          <option value="left-right">Left & Right</option>
-                          <option value="scale">Scale</option>
-                        </select>
-                      </div>
-                      
-                      <div>
-                        <label className="text-xs text-gray-600">Vertical</label>
-                        <select
-                          value={selectedElement.constraints?.vertical || 'top'}
-                          onChange={(e) => setConstraints(selectedElement.constraints?.horizontal || 'left', e.target.value)}
-                          className="w-full px-2 py-1 border rounded text-sm"
-                        >
-                          <option value="top">Top</option>
-                          <option value="bottom">Bottom</option>
-                          <option value="center">Center</option>
-                          <option value="top-bottom">Top & Bottom</option>
-                          <option value="scale">Scale</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Multi-select properties */}
-            {hasMultipleSelected && (
-              <div className={`p-3 ${darkMode ? 'bg-gray-700' : 'bg-blue-50'} rounded text-sm`}>
-                <p className={darkMode ? 'text-gray-300' : 'text-blue-700'}>
-                  <strong>{selectedIds.length}</strong> elements selected
-                </p>
-                <p className={`text-xs mt-1 ${darkMode ? 'text-gray-400' : 'text-blue-600'}`}>
-                  You can move, resize, align, or apply effects to all selected elements
-                </p>
-              </div>
-            )}
-
-            {/* Effects Section */}
-            {selectedElement && (
-              <div className="pt-4 border-t">
-                <h4 className="text-sm font-semibold mb-2">Effects</h4>
-                
-                <div className="space-y-2">
-                  {selectedElement.shadow ? (
-                    <button onClick={removeShadow} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
-                      Remove Shadow
-                    </button>
-                  ) : (
-                    <button onClick={addShadow} className="w-full px-3 py-2 bg-purple-100 hover:bg-purple-200 rounded text-sm">
-                      Add Shadow
-                    </button>
-                  )}
-                  
-                  {selectedElement.gradient ? (
-                    <button onClick={removeGradient} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
-                      Remove Gradient
-                    </button>
-                  ) : (
-                    <button onClick={addGradient} className="w-full px-3 py-2 bg-purple-100 hover:bg-purple-200 rounded text-sm">
-                      Add Gradient
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Layer Controls */}
-            {selectedElement && (
-              <div className="pt-4 border-t space-y-2">
-                <button onClick={bringToFront} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
-                  Bring to Front (])
-                </button>
-                <button onClick={sendToBack} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
-                  Send to Back ([)
-                </button>
-                <button onClick={toggleLock} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
-                  {selectedElement.locked ? 'Unlock (Cmd+L)' : 'Lock (Cmd+L)'}
-                </button>
-                <button onClick={toggleVisibility} className="w-full px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm">
-                  {selectedElement.visible === false ? 'Show' : 'Hide'}
-                </button>
-                {selectedIds.length >= 2 && (
-                  <button onClick={createGroup} className="w-full px-3 py-2 bg-blue-100 hover:bg-blue-200 rounded text-sm">
-                    Group Selection (Cmd+G)
-                  </button>
-                )}
-                {selectedElement.groupId && (
-                  <button onClick={ungroupSelected} className="w-full px-3 py-2 bg-orange-100 hover:bg-orange-200 rounded text-sm">
-                    Ungroup
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <PropertiesPanel
+        selectedElement={selectedElement}
+        hasMultipleSelected={hasMultipleSelected}
+        selectedCount={selectedIds.length}
+        darkMode={darkMode}
+        onUpdateProperty={updateProperty}
+        onToggleAutoLayout={toggleAutoLayout}
+        onUpdateAutoLayout={updateAutoLayout}
+        onSetConstraints={setConstraints}
+        onAddShadow={addShadow}
+        onRemoveShadow={removeShadow}
+        onAddGradient={addGradient}
+        onRemoveGradient={removeGradient}
+        onBringToFront={bringToFront}
+        onSendToBack={sendToBack}
+        onToggleLock={toggleLock}
+        onToggleVisibility={toggleVisibility}
+        onCreateGroup={createGroup}
+        onUngroupSelected={ungroupSelected}
+      />
     </div>
   );
 }
